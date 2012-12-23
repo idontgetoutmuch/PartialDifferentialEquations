@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell, QuasiQuotes, NoMonomorphismRestriction #-}
 
-import Data.Array.Repa
+import Data.Array.Repa hiding ((++))
 import Data.Array.Repa.Stencil
 import Data.Array.Repa.Stencil.Dim2
 
@@ -52,19 +52,20 @@ priceAtT = PointedArray 0 (fromListUnboxed (Z :. m+1)
 {-# INLINE solve #-}
 solve arr
  = traverse arr id elemFn
- where  _ :. height :. width = extent arr
+ where  _ :. width :. height = extent arr
         {-# INLINE elemFn #-}
         elemFn get d@(Z :. i :. j)
-          | i == 0      = trace ("1: " Prelude.++ show i Prelude.++ show j) 0.0
-          | i == m {- height -} = trace ("2: " Prelude.++ show i Prelude.++ show j Prelude.++ show (xMax - k)) xMax - k
-          | j == 0      = trace ("3: " Prelude.++ show i Prelude.++ show j) max 0 (deltaX * (fromIntegral j) - k)
-          | otherwise   = trace ("4: " Prelude.++ show i Prelude.++ show j) a * (get (Z :. (i-1) :. (j-1))) +
-                          b * (get (Z :. i     :. (j-1))) +
-                          c * (get (Z :. (i+1) :. (j-1)))
+          | j == 0      = trace ("1: " ++ show i ++ show j ++ ": 0.0") 0.0
+          | j == m {- height -} = trace ("2: " ++ show i ++ show j ++ ": " ++ show (xMax - k)) xMax - k
+          | i == 0      = trace ("3: " ++ show i ++ show j ++ ": " ++ show (max 0 (deltaX * fromIntegral j) - k)) max 0 (deltaX * (fromIntegral j) - k)
+          | otherwise   = trace ("4: " ++ show i ++ show j ++ ": " ++ show foo) foo
           where
-            a = deltaT * (sigma^2 * (fromIntegral i)^2 - r * (fromIntegral i)) / 2
-            b = 1 - deltaT * (r  + sigma^2 * (fromIntegral i)^2)
-            c = deltaT * (sigma^2 * (fromIntegral i)^2 + r * (fromIntegral i)) / 2
+            foo =  a * (get (Z :. (i-1) :. (j-1))) +
+                   b * (get (Z :. (i-1) :. j)) +
+                   c * (get (Z :. (i-1) :. (j+1)))
+            a = deltaT * (sigma^2 * (fromIntegral j)^2 - r * (fromIntegral j)) / 2
+            b = 1 - deltaT * (r  + sigma^2 * (fromIntegral j)^2)
+            c = deltaT * (sigma^2 * (fromIntegral j)^2 + r * (fromIntegral j)) / 2
 
 initGrid :: Array U DIM2 Double
 initGrid = fromListUnboxed (Z :. (m+1 :: Int) :. (n+1 :: Int)) (take ((n+1) * (m+1)) $ repeat 0.0)

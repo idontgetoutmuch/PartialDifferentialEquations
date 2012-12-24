@@ -1,26 +1,11 @@
 {-# LANGUAGE TemplateHaskell, QuasiQuotes, NoMonomorphismRestriction #-}
+{-# LANGUAGE FlexibleContexts #-}
 
-import Data.Array.Repa hiding ((++))
+import qualified Data.Vector.Unboxed as Unboxed
+import Data.Array.Repa as Repa
 import Data.Array.Repa.Stencil
 import Data.Array.Repa.Stencil.Dim2
-
-import Debug.Trace
-
-sten :: Stencil DIM2 Int
-sten = [stencil2| 1 1 1
-                  1 0 1
-                  1 1 1 |]
-
-x1 :: Array U DIM2 Int
-x1 = fromListUnboxed (Z :. (3 :: Int) :. (4 :: Int))
-     [ 
-       1, 2, 3, 1
-     , 4, 9, 5, 2
-     , 0, 0, 0, 3
-     ]
-
-conv1 :: Monad m => m (Array U DIM2 Int)
-conv1 = computeP $ mapStencil2 (BoundConst 0) sten x1
+import Data.Array.Repa.Eval
 
 r = 0.05
 sigma = 0.2
@@ -32,10 +17,9 @@ deltaX = xMax / (fromIntegral m)
 n = 3
 deltaT = t / (fromIntegral n)
 
-data PointedArray a = PointedArray Int (Array U DIM1 a)
-  deriving Show
+data PointedArray t a = PointedArray Int (Array t DIM1 a)
 
-f :: PointedArray Double -> Double
+f :: Source r Double => PointedArray r Double -> Double
 f (PointedArray j x) | j == 0 = 0.0
 f (PointedArray j x) | j == m = xMax - k
 f (PointedArray j x)          = a * x!(Z :. j-1) + b * x!(Z :. j) + c * x!(Z :. j+1)
@@ -44,29 +28,30 @@ f (PointedArray j x)          = a * x!(Z :. j-1) + b * x!(Z :. j) + c * x!(Z :. 
     b = 1 - deltaT * (r  + sigma^2 * (fromIntegral j)^2)
     c = deltaT * (sigma^2 * (fromIntegral j)^2 + r * (fromIntegral j)) / 2
 
-priceAtT :: PointedArray Double
+priceAtT :: PointedArray U Double
 priceAtT = PointedArray 0 (fromListUnboxed (Z :. m+1) 
                            [ max 0 (deltaX * (fromIntegral j) - k) | j <- [0..m] ])
 
+coBind :: (Source D a, Source D b, Target D b, Monad m) =>
+          PointedArray D a -> (PointedArray D a -> b) -> m (PointedArray D b)
+coBind (PointedArray i a) f = computeP newArr >>= return . PointedArray i
+  where
+      newArr = Repa.traverse a id g
+        where
+          g get (Z :. j) = f $ PointedArray j a
 
-{-# INLINE solve #-}
-solve arr
- = traverse arr id elemFn
- where  _ :. width :. height = extent arr
-        {-# INLINE elemFn #-}
-        elemFn get d@(Z :. i :. j)
-          | j == 0      = trace ("1: " ++ show i ++ show j ++ ": 0.0") 0.0
-          | j == m {- height -} = trace ("2: " ++ show i ++ show j ++ ": " ++ show (xMax - k)) xMax - k
-          | i == 0      = trace ("3: " ++ show i ++ show j ++ ": " ++ show (max 0 (deltaX * fromIntegral j) - k)) max 0 (deltaX * (fromIntegral j) - k)
-          | otherwise   = trace ("4: " ++ show i ++ show j ++ ": " ++ show foo) foo
-          where
-            foo =  a * (get (Z :. (i-1) :. (j-1))) +
-                   b * (get (Z :. (i-1) :. j)) +
-                   c * (get (Z :. (i-1) :. (j+1)))
-            a = deltaT * (sigma^2 * (fromIntegral j)^2 - r * (fromIntegral j)) / 2
-            b = 1 - deltaT * (r  + sigma^2 * (fromIntegral j)^2)
-            c = deltaT * (sigma^2 * (fromIntegral j)^2 + r * (fromIntegral j)) / 2
+-- test1 :: IO String
+-- test1 = do PointedArray _ a <- test
+--            return $ show a
+--              where
+--                test :: IO (PointedArray U Double)
+--                test = coBind priceAtT f 
 
-initGrid :: Array U DIM2 Double
-initGrid = fromListUnboxed (Z :. (m+1 :: Int) :. (n+1 :: Int)) (take ((n+1) * (m+1)) $ repeat 0.0)
-           
+-- test2 :: IO String        
+-- test2 = do undefined
+--              where
+--                test :: IO (PointedArray U Double)
+--                test = do x <- coBind priceAtT f
+--                          return $ coBind x f
+
+-- ((((flip coBind f) priceAtT :: IO (PointedArray U Double)) >>= flip coBind f) :: IO (PointedArray U Double)) >>= return . show . (\(PointedArray i a) -> a)

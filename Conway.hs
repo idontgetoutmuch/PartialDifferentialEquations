@@ -1,13 +1,13 @@
-{-# LANGUAGE TemplateHaskell, QuasiQuotes, NoMonomorphismRestriction #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-import qualified Data.Vector.Unboxed as Unboxed
+{-# OPTIONS_GHC -Wall -fno-warn-name-shadowing -fno-warn-type-defaults #-}
+
 import Data.Array.Repa as Repa
-import Data.Array.Repa.Stencil
-import Data.Array.Repa.Stencil.Dim2
 import Data.Array.Repa.Eval
 import Control.Monad
 
+r, sigma, k, t, xMax, deltaX, deltaT :: Double
+m, n :: Int
 r = 0.05
 sigma = 0.2
 k = 50.0
@@ -22,9 +22,9 @@ data PointedArray a = PointedArray Int (Array U DIM1 a)
   deriving Show
 
 f :: PointedArray Double -> Double
-f (PointedArray j x) | j == 0 = 0.0
-f (PointedArray j x) | j == m = xMax - k
-f (PointedArray j x)          = a * x!(Z :. j-1) + b * x!(Z :. j) + c * x!(Z :. j+1)
+f (PointedArray j _x) | j == 0 = 0.0
+f (PointedArray j _x) | j == m = xMax - k
+f (PointedArray j  x)          = a * x!(Z :. j-1) + b * x!(Z :. j) + c * x!(Z :. j+1)
   where
     a = deltaT * (sigma^2 * (fromIntegral j)^2 - r * (fromIntegral j)) / 2
     b = 1 - deltaT * (r  + sigma^2 * (fromIntegral j)^2)
@@ -40,7 +40,7 @@ coBindU (PointedArray i a) f = computeP newArr >>= return . PointedArray i
   where
       newArr = Repa.traverse a id g
         where
-          g get (Z :. j) = f $ PointedArray j a
+          g _get (Z :. j) = f $ PointedArray j a
 
 testN :: Int -> IO (PointedArray Double)
 testN n =  h priceAtT

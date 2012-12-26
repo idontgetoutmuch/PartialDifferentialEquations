@@ -1,13 +1,38 @@
--- @MISC{Zvan98discreteasian,
---     author = {R. Zvan and P. A. Forsyth and K.R. VETZAL and Peter A. Forsyth},
---     title = {Discrete Asian Barrier Options},
---     year = {1998}
--- }
+\documentclass[12pt]{article}
+%include polycode.fmt
+\usepackage[pdftex,pagebackref,letterpaper=true,colorlinks=true,pdfpagemode=none,urlcolor=blue,linkcolor=blue,citecolor=blue,pdfstartview=FitH]{hyperref}
 
+\usepackage{amsmath,amsfonts}
+\usepackage{graphicx}
+\usepackage{color}
+
+\setlength{\oddsidemargin}{0pt}
+\setlength{\evensidemargin}{0pt}
+\setlength{\textwidth}{6.0in}
+\setlength{\topmargin}{0in}
+\setlength{\textheight}{8.5in}
+
+\setlength{\parindent}{0in}
+\setlength{\parskip}{5px}
+
+\newcommand{\half}{\frac{1}{2}}
+\newcommand{\cobind}{\mathbin{=\mkern-6.7mu>\!\!\!>}}
+
+%format =>> = "\cobind "
+
+\begin{document}
+
+Can we get better performance for pricing financial options?
+
+First let us translate our pricer using the
+\href{http://idontgetoutmuch.wordpress.com/2012/04/01/solving-a-partial-differential-equation-comonadically/}{Explicit
+Euler Method} to use \href{http://repa.ouroborus.net}{repa}.
+
+\begin{code}
 {-# LANGUAGE FlexibleContexts #-}
 
 {-# OPTIONS_GHC -Wall -fno-warn-name-shadowing -fno-warn-type-defaults #-}
-
+    
 import Data.Array.Repa as Repa
 import Data.Array.Repa.Eval
 import Control.Monad
@@ -55,8 +80,18 @@ testN n =  h priceAtT
            where
            h = foldr (>=>) return
                (take n $ Prelude.zipWith flip (repeat coBindU) (repeat f))
+\end{code}
 
--- So far so good but this has not bought us very much over using
--- Data.Array or Data.Vector.
---
--- 
+So far so good but this has not bought us very much over using
+{\em Data.Array} or {\em Data.Vector}.
+
+So now let us suppose that we wish to price an Asian call option\cite{Zvan98discreteasian}. The payoff at time $T$ is
+
+$$
+{\Bigg(\frac{\Sigma_{i=1}^n S_{t_i}}{n} -k\Bigg)}^+
+$$
+
+Thus the payoff depends not just on the value of the underlying $S$ at
+time $T$ but also on the path taken. We do not need to know the entire path, just the average at discrete points in time. Thus the payoff is a function of time, the value of the underlying and the average of the underlying sampled at discrete points in time $z(x,a,t)$.
+
+\end{document}

@@ -1,12 +1,16 @@
+-- @MISC{Zvan98discreteasian,
+--     author = {R. Zvan and P. A. Forsyth and K.R. VETZAL and Peter A. Forsyth},
+--     title = {Discrete Asian Barrier Options},
+--     year = {1998}
+-- }
+
 {-# LANGUAGE FlexibleContexts #-}
 
 {-# OPTIONS_GHC -Wall -fno-warn-name-shadowing -fno-warn-type-defaults #-}
 
-import Data.Array.Repa as R
+import Data.Array.Repa as Repa
 import Data.Array.Repa.Eval
 import Control.Monad
-
-import Data.Array as A
 
 r, sigma, k, t, xMax, deltaX, deltaT :: Double
 m, n :: Int
@@ -20,55 +24,15 @@ deltaX = xMax / (fromIntegral m)
 n = 800
 deltaT = t / (fromIntegral n)
 
-class Comonad c where
-  coreturn :: c a -> a
-  (=>>) :: c a -> (c a -> b) -> c b
-
-data PointedArray i a = PointedArray i (A.Array i a)
-  deriving Show
-
-instance Ix i => Functor (PointedArray i) where
-  fmap f (PointedArray i a) = PointedArray i (fmap f a) 
-
-instance Ix i => Comonad (PointedArray i) where
-  coreturn (PointedArray i a) = a A.! i
-  (PointedArray i a) =>> f =
-    PointedArray i (listArray (bounds a) 
-                   (Prelude.map (f . flip PointedArray a) (range $ bounds a)))
-
-fArr :: PointedArray Int Double -> Double
-fArr (PointedArray j _x) | j == 0 = 0.0
-fArr (PointedArray j _x) | j == m = xMax - k
-fArr (PointedArray j  x)          = a * x A.! (j-1) +
-                                    b * x A.! j +
-                                    c * x A.! (j+1)
-  where
-    a = deltaT * (sigma^2 * (fromIntegral j)^2 - r * (fromIntegral j)) / 2
-    b = 1 - deltaT * (r  + sigma^2 * (fromIntegral j)^2)
-    c = deltaT * (sigma^2 * (fromIntegral j)^2 + r * (fromIntegral j)) / 2
-
-priceAtTArr :: PointedArray Int Double
-priceAtTArr = PointedArray 0 (listArray (0, m)
-                              [ max 0 (deltaX * (fromIntegral j) - k) | j <- [0..m] ])
-
-prices :: [PointedArray Int Double]
-prices = iterate (=>> fArr) priceAtTArr
-
-pricesAtM :: Ix i => i -> PointedArray i e -> e
-pricesAtM m (PointedArray _ x) = x A.! m
-
-price :: Int -> Double
-price m = last $ Prelude.map (pricesAtM m) $ take n $ iterate (=>> fArr) priceAtTArr
-
-data PointedArrayU a = PointedArrayU Int (R.Array U DIM1 a)
+data PointedArrayU a = PointedArrayU Int (Array U DIM1 a)
   deriving Show
 
 f :: PointedArrayU Double -> Double
 f (PointedArrayU j _x) | j == 0 = 0.0
 f (PointedArrayU j _x) | j == m = xMax - k
-f (PointedArrayU j  x)          = a * x R.! (Z :. j-1) +
-                                  b * x R.! (Z :. j) +
-                                  c * x R.! (Z :. j+1)
+f (PointedArrayU j  x)          = a * x! (Z :. j-1) +
+                                  b * x! (Z :. j) +
+                                  c * x! (Z :. j+1)
   where
     a = deltaT * (sigma^2 * (fromIntegral j)^2 - r * (fromIntegral j)) / 2
     b = 1 - deltaT * (r  + sigma^2 * (fromIntegral j)^2)
@@ -82,7 +46,7 @@ coBindU :: (Source U a, Source U b, Target U b, Monad m) =>
            PointedArrayU a -> (PointedArrayU a -> b) -> m (PointedArrayU  b)
 coBindU (PointedArrayU i a) f = computeP newArr >>= return . PointedArrayU i
   where
-      newArr = R.traverse a id g
+      newArr = traverse a id g
         where
           g _get (Z :. j) = f $ PointedArrayU j a
 
@@ -92,3 +56,7 @@ testN n =  h priceAtT
            h = foldr (>=>) return
                (take n $ Prelude.zipWith flip (repeat coBindU) (repeat f))
 
+-- So far so good but this has not bought us very much over using
+-- Data.Array or Data.Vector.
+--
+-- 

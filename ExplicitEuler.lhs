@@ -38,12 +38,13 @@ import Data.Array.Repa.Eval
 import Control.Monad
 
 r, sigma, k, t, xMax, deltaX, deltaT :: Double
-m, n :: Int
+m, n, p :: Int
 r = 0.05
 sigma = 0.2
 k = 50.0
 t = 3.0
-m = 80
+m = 3 -- 80
+p = 0 -- 5 -- 80
 xMax = 150
 deltaX = xMax / (fromIntegral m)
 n = 800
@@ -93,5 +94,29 @@ $$
 
 Thus the payoff depends not just on the value of the underlying $S$ at
 time $T$ but also on the path taken. We do not need to know the entire path, just the average at discrete points in time. Thus the payoff is a function of time, the value of the underlying and the average of the underlying sampled at discrete points in time $z(x,a,t)$.
+
+\begin{code}
+data PointedArrayP a = PointedArrayP Int (Array U DIM2 a)
+  deriving Show
+
+priceAtTP :: PointedArrayP Double
+priceAtTP =
+  PointedArrayP 0 (fromListUnboxed (Z :. m+1 :. p+1) 
+                [ max 0 (deltaX * (fromIntegral j) - k) | j <- [0..m], _l <- [0..p] ])
+
+fP :: PointedArrayP Double -> Array D DIM1 Double
+fP (PointedArrayP j _x) | j == 0 = fromFunction (Z :. p+1) (const 0.0)
+fP (PointedArrayP j _x) | j == m = fromFunction (Z :. p+1) (const $ xMax - k)
+fP (PointedArrayP j  x)          = (lift a) *^ (slice x (Any :. j-1 :. All)) +^
+                                   (lift b) *^ (slice x (Any :. j   :. All)) +^
+                                   (lift c) *^ (slice x (Any :. j+1 :. All))
+  where
+    a = deltaT * (sigma^2 * (fromIntegral j)^2 - r * (fromIntegral j)) / 2
+    b = 1 - deltaT * (r  + sigma^2 * (fromIntegral j)^2)
+    c = deltaT * (sigma^2 * (fromIntegral j)^2 + r * (fromIntegral j)) / 2
+
+    lift x = fromFunction (Z :. p+1) (const x)
+
+\end{code}
 
 \end{document}

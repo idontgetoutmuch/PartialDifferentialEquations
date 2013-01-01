@@ -29,7 +29,7 @@ First let us translate our pricer using the
 Euler Method} to use \href{http://repa.ouroborus.net}{repa}.
 
 \begin{code}
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts, TypeOperators #-}
 
 {-# OPTIONS_GHC -Wall -fno-warn-name-shadowing -fno-warn-type-defaults #-}
     
@@ -117,6 +117,39 @@ fP (PointedArrayP j  x)          = (lift a) *^ (slice x (Any :. j-1 :. All)) +^
 
     lift x = fromFunction (Z :. p+1) (const x)
 
+-- coBindP :: (Source U a, Source U b, Target U b, Monad m) =>
+--            PointedArrayP a -> (PointedArrayP a -> b) -> m (PointedArrayP  b)
+-- coBindP (PointedArrayP i a) f = computeP newArr >>= return . PointedArrayP i
+--   where
+--       newArr = traverse a id g
+--         where
+--           g _get (Z :. j :. k) = undefined {- fP -} $ PointedArrayP j a
+
+singleUpdater :: Array D DIM1 Double -> Array D DIM1 Double
+singleUpdater a = traverse a id f
+  where
+    Z :. m = extent a
+    f _get (Z :. ix) | ix == 0   = 0.0
+    f _get (Z :. ix) | ix == m-1 = xMax - k
+    f  get (Z :. ix)             = a * get (Z :. ix-1) +
+                                   b * get (Z :. ix) +
+                                   c * get (Z :. ix+1)
+      where
+        a = deltaT * (sigma^2 * (fromIntegral ix)^2 - r * (fromIntegral ix)) / 2
+        b = 1 - deltaT * (r  + sigma^2 * (fromIntegral ix)^2)
+        c = deltaT * (sigma^2 * (fromIntegral ix)^2 + r * (fromIntegral ix)) / 2
+
+priceAtTA :: Array U (Z :. Int) Double
+priceAtTA = fromListUnboxed (Z :. m+1) [max 0 (deltaX * (fromIntegral j) - k) | j <- [0..m]]
+
+multiUpdater :: Array D DIM2 Double -> Array D DIM2 Double
+multiUpdater a = fromFunction (extent a) f
+     where
+       f :: DIM2 -> Double
+       f (Z :. ix :. jx) = (singleUpdater x)!(Z :. jx)
+         where
+           x :: Array D DIM1 Double
+           x = slice a (Any :. ix :. All)
 \end{code}
 
 \end{document}

@@ -43,8 +43,8 @@ r = 0.05
 sigma = 0.2
 k = 50.0
 t = 3.0
-m = 3 -- 80
-p = 0 -- 5 -- 80
+m = 80
+p = 99
 xMax = 150
 deltaX = xMax / (fromIntegral m)
 n = 800
@@ -83,8 +83,29 @@ testN n =  h priceAtT
                (take n $ Prelude.zipWith flip (repeat coBindU) (repeat f))
 \end{code}
 
-So far so good but this has not bought us very much over using
-{\em Data.Array} or {\em Data.Vector}.
+So far so good but this has not bought us very much over using {\em
+Data.Array} or {\em Data.Vector}. Morevoer we have not been able to
+use the costate comonad because of the restrictions on types imposed
+by {\em repa}.
+
+Let us re-write the above without even attempting to mimic the cobind
+operator. Thus we no longer need our pointed array.
+
+\begin{code}
+singleUpdater :: Array D DIM1 Double -> Array D DIM1 Double
+singleUpdater a = traverse a id f
+  where
+    Z :. m = extent a
+    f _get (Z :. ix) | ix == 0   = 0.0
+    f _get (Z :. ix) | ix == m-1 = xMax - k
+    f  get (Z :. ix)             = a * get (Z :. ix-1) +
+                                   b * get (Z :. ix) +
+                                   c * get (Z :. ix+1)
+      where
+        a = deltaT * (sigma^2 * (fromIntegral ix)^2 - r * (fromIntegral ix)) / 2
+        b = 1 - deltaT * (r  + sigma^2 * (fromIntegral ix)^2)
+        c = deltaT * (sigma^2 * (fromIntegral ix)^2 + r * (fromIntegral ix)) / 2
+\end{code}
 
 So now let us suppose that we wish to price an Asian call option\cite{Zvan98discreteasian}. The payoff at time $T$ is
 
@@ -116,28 +137,6 @@ fP (PointedArrayP j  x)          = (lift a) *^ (slice x (Any :. j-1 :. All)) +^
     c = deltaT * (sigma^2 * (fromIntegral j)^2 + r * (fromIntegral j)) / 2
 
     lift x = fromFunction (Z :. p+1) (const x)
-
--- coBindP :: (Source U a, Source U b, Target U b, Monad m) =>
---            PointedArrayP a -> (PointedArrayP a -> b) -> m (PointedArrayP  b)
--- coBindP (PointedArrayP i a) f = computeP newArr >>= return . PointedArrayP i
---   where
---       newArr = traverse a id g
---         where
---           g _get (Z :. j :. k) = undefined {- fP -} $ PointedArrayP j a
-
-singleUpdater :: Array D DIM1 Double -> Array D DIM1 Double
-singleUpdater a = traverse a id f
-  where
-    Z :. m = extent a
-    f _get (Z :. ix) | ix == 0   = 0.0
-    f _get (Z :. ix) | ix == m-1 = xMax - k
-    f  get (Z :. ix)             = a * get (Z :. ix-1) +
-                                   b * get (Z :. ix) +
-                                   c * get (Z :. ix+1)
-      where
-        a = deltaT * (sigma^2 * (fromIntegral ix)^2 - r * (fromIntegral ix)) / 2
-        b = 1 - deltaT * (r  + sigma^2 * (fromIntegral ix)^2)
-        c = deltaT * (sigma^2 * (fromIntegral ix)^2 + r * (fromIntegral ix)) / 2
 
 priceAtTA :: Array U (Z :. Int) Double
 priceAtTA = fromListUnboxed (Z :. m+1) [max 0 (deltaX * (fromIntegral j) - k) | j <- [0..m]]

@@ -53,20 +53,20 @@ deltaT = t / (fromIntegral n)
 data PointedArrayU a = PointedArrayU Int (Array U DIM1 a)
   deriving Show
 
-f :: PointedArrayU Double -> Double
-f (PointedArrayU j _x) | j == 0 = 0.0
-f (PointedArrayU j _x) | j == m = xMax - k
-f (PointedArrayU j  x)          = a * x! (Z :. j-1) +
-                                  b * x! (Z :. j) +
-                                  c * x! (Z :. j+1)
+singleUpdaterP :: PointedArrayU Double -> Double
+singleUpdaterP (PointedArrayU j _x) | j == 0 = 0.0
+singleUpdaterP (PointedArrayU j _x) | j == m = xMax - k
+singleUpdaterP (PointedArrayU j  x)          = a * x! (Z :. j-1) +
+                                               b * x! (Z :. j) +
+                                               c * x! (Z :. j+1)
   where
     a = deltaT * (sigma^2 * (fromIntegral j)^2 - r * (fromIntegral j)) / 2
     b = 1 - deltaT * (r  + sigma^2 * (fromIntegral j)^2)
     c = deltaT * (sigma^2 * (fromIntegral j)^2 + r * (fromIntegral j)) / 2
 
-priceAtT :: PointedArrayU Double
-priceAtT = PointedArrayU 0 (fromListUnboxed (Z :. m+1) 
-                           [ max 0 (deltaX * (fromIntegral j) - k) | j <- [0..m] ])
+priceAtTP :: PointedArrayU Double
+priceAtTP = PointedArrayU 0 (fromListUnboxed (Z :. m+1) 
+                            [ max 0 (deltaX * (fromIntegral j) - k) | j <- [0..m] ])
 
 coBindU :: (Source U a, Source U b, Target U b, Monad m) =>
            PointedArrayU a -> (PointedArrayU a -> b) -> m (PointedArrayU  b)
@@ -77,10 +77,10 @@ coBindU (PointedArrayU i a) f = computeP newArr >>= return . PointedArrayU i
           g _get (Z :. j) = f $ PointedArrayU j a
 
 testN :: Int -> IO (PointedArrayU Double)
-testN n =  h priceAtT
+testN n =  h priceAtTP
            where
            h = foldr (>=>) return
-               (take n $ Prelude.zipWith flip (repeat coBindU) (repeat f))
+               (take n $ Prelude.zipWith flip (repeat coBindU) (repeat singleUpdaterP))
 \end{code}
 
 So far so good but this has not bought us very much over using {\em
@@ -105,6 +105,41 @@ singleUpdater a = traverse a id f
         a = deltaT * (sigma^2 * (fromIntegral ix)^2 - r * (fromIntegral ix)) / 2
         b = 1 - deltaT * (r  + sigma^2 * (fromIntegral ix)^2)
         c = deltaT * (sigma^2 * (fromIntegral ix)^2 + r * (fromIntegral ix)) / 2
+
+priceAtT :: Array U DIM1 Double
+priceAtT = fromListUnboxed (Z :. m+1) [max 0 (deltaX * (fromIntegral j) - k) | j <- [0..m]]
+\end{code}
+
+\begin{code}
+multiUpdater a = fromFunction (extent a) f
+     where
+       f :: DIM2 -> Double
+       f (Z :. ix :. jx) = (singleUpdater x)!(Z :. ix)
+         where
+           x :: Array D DIM1 Double
+           x = slice a (Any :. jx)
+
+priceAtTMulti :: Array U DIM2 Double
+priceAtTMulti = fromListUnboxed (Z :. m+1 :. p+1)
+                [ max 0 (deltaX * (fromIntegral j) - (k + (fromIntegral l)/1000.0))
+                | j <- [0..m]
+                , l <- [0..p]
+                ]
+
+testMulti :: IO (Array U DIM2 Double)
+testMulti = updaterM priceAtTMulti
+  where
+    updaterM :: Monad m => Array U DIM2 Double -> m (Array U DIM2 Double)
+    updaterM = foldr (>=>) return (replicate n (computeP . multiUpdater))
+
+pickAtStrike :: Monad m => Array U DIM2 Double -> m (Array U DIM1 Double)
+pickAtStrike t = computeP $ slice t (Any :. (25 :: Int) :. All)
+
+main :: IO ()
+main = do t <- testMulti
+          vStrikes <- pickAtStrike t
+          -- putStrLn $ show t
+          putStrLn $ show vStrikes
 \end{code}
 
 So now let us suppose that we wish to price an Asian call option\cite{Zvan98discreteasian}. The payoff at time $T$ is
@@ -120,8 +155,8 @@ time $T$ but also on the path taken. We do not need to know the entire path, jus
 data PointedArrayP a = PointedArrayP Int (Array U DIM2 a)
   deriving Show
 
-priceAtTP :: PointedArrayP Double
-priceAtTP =
+priceAtTP2 :: PointedArrayP Double
+priceAtTP2 =
   PointedArrayP 0 (fromListUnboxed (Z :. m+1 :. p+1) 
                 [ max 0 (deltaX * (fromIntegral j) - k) | j <- [0..m], _l <- [0..p] ])
 
@@ -141,8 +176,8 @@ fP (PointedArrayP j  x)          = (lift a) *^ (slice x (Any :. j-1 :. All)) +^
 priceAtTA :: Array U (Z :. Int) Double
 priceAtTA = fromListUnboxed (Z :. m+1) [max 0 (deltaX * (fromIntegral j) - k) | j <- [0..m]]
 
-multiUpdater :: Array D DIM2 Double -> Array D DIM2 Double
-multiUpdater a = fromFunction (extent a) f
+multiUpdater2 :: Array D DIM2 Double -> Array D DIM2 Double
+multiUpdater2 a = fromFunction (extent a) f
      where
        f :: DIM2 -> Double
        f (Z :. ix :. jx) = (singleUpdater x)!(Z :. jx)

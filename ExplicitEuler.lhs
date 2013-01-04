@@ -110,7 +110,10 @@ priceAtT :: Array U DIM1 Double
 priceAtT = fromListUnboxed (Z :. m+1) [max 0 (deltaX * (fromIntegral j) - k) | j <- [0..m]]
 \end{code}
 
+Now suppose we want to price a spot ladder then we would like to apply the same update function to slightly modified payoffs (the terminal boundary condition). First let's utilise our single update function to work over two dimensional grid.
+
 \begin{code}
+multiUpdater :: Source r Double => Array r DIM2 Double -> Array D DIM2 Double
 multiUpdater a = fromFunction (extent a) f
      where
        f :: DIM2 -> Double
@@ -118,27 +121,40 @@ multiUpdater a = fromFunction (extent a) f
          where
            x :: Array D DIM1 Double
            x = slice a (Any :. jx)
+\end{code}
 
+We define our spot ladder on a call to be many calls each with a
+strike differing by 10 basis points (a basis point is one hundredth of
+one percent).
+
+\begin{code}
 priceAtTMulti :: Array U DIM2 Double
 priceAtTMulti = fromListUnboxed (Z :. m+1 :. p+1)
                 [ max 0 (deltaX * (fromIntegral j) - (k + (fromIntegral l)/1000.0))
                 | j <- [0..m]
                 , l <- [0..p]
                 ]
+\end{code}
 
+Now we can test our spot ladder pricer. Note that we force the
+evaluation of our two dimensional array at each time step. If we do
+not do that then we end up with a leak as presumably repa tries to
+fuse many updates. Moreover fusing updates across time steps does not
+really buy us anything.
+
+\begin{code}
 testMulti :: IO (Array U DIM2 Double)
 testMulti = updaterM priceAtTMulti
   where
     updaterM :: Monad m => Array U DIM2 Double -> m (Array U DIM2 Double)
     updaterM = foldr (>=>) return (replicate n (computeP . multiUpdater))
 
-pickAtStrike :: Monad m => Array U DIM2 Double -> m (Array U DIM1 Double)
-pickAtStrike t = computeP $ slice t (Any :. (25 :: Int) :. All)
+pickAtStrike :: Monad m => Int -> Array U DIM2 Double -> m (Array U DIM1 Double)
+pickAtStrike n t = computeP $ slice t (Any :. n :. All)
 
 main :: IO ()
 main = do t <- testMulti
-          vStrikes <- pickAtStrike t
-          -- putStrLn $ show t
+          vStrikes <- pickAtStrike 27 t
           putStrLn $ show vStrikes
 \end{code}
 

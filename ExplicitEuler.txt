@@ -1,34 +1,11 @@
-\documentclass[12pt]{article}
-%include polycode.fmt
-\usepackage[pdftex,pagebackref,letterpaper=true,colorlinks=true,pdfpagemode=none,urlcolor=blue,linkcolor=blue,citecolor=blue,pdfstartview=FitH]{hyperref}
-
-\usepackage{amsmath,amsfonts}
-\usepackage{graphicx}
-\usepackage{color}
-
-\setlength{\oddsidemargin}{0pt}
-\setlength{\evensidemargin}{0pt}
-\setlength{\textwidth}{6.0in}
-\setlength{\topmargin}{0in}
-\setlength{\textheight}{8.5in}
-
-\setlength{\parindent}{0in}
-\setlength{\parskip}{5px}
-
-\newcommand{\half}{\frac{1}{2}}
-\newcommand{\cobind}{\mathbin{=\mkern-6.7mu>\!\!\!>}}
-
-%format =>> = "\cobind "
-
-\begin{document}
-
-Can we get better performance for pricing financial options?
+Can we get better performance for pricing financial options in Haskell?
 
 First let us translate our pricer using the
-\href{http://idontgetoutmuch.wordpress.com/2012/04/01/solving-a-partial-differential-equation-comonadically/}{Explicit
-Euler Method} to use \href{http://repa.ouroborus.net}{repa}.
+[Explicit Euler Method](http://idontgetoutmuch.wordpress.com/2012/04/01/solving-a-partial-differential-equation-comonadically/)
+to use
+[`repa`](http://repa.ouroborus.net).
 
-\begin{code}
+~~~~ { .haskell }
 {-# LANGUAGE FlexibleContexts, TypeOperators #-}
 
 {-# OPTIONS_GHC -Wall -fno-warn-name-shadowing -fno-warn-type-defaults #-}
@@ -81,17 +58,16 @@ testN n =  h priceAtTP
            where
            h = foldr (>=>) return
                (take n $ Prelude.zipWith flip (repeat coBindU) (repeat singleUpdaterP))
-\end{code}
+~~~~
 
-So far so good but this has not bought us very much over using {\em
-Data.Array} or {\em Data.Vector}. Morevoer we have not been able to
+So far so good but this has not bought us very much over using `Data.Array` or `Data.Vector`. Morevoer we have not been able to
 use the costate comonad because of the restrictions on types imposed
-by {\em repa}.
+by `repa`.
 
 Let us re-write the above without even attempting to mimic the cobind
 operator. Thus we no longer need our pointed array.
 
-\begin{code}
+~~~~ { .haskell }
 singleUpdater :: Array D DIM1 Double -> Array D DIM1 Double
 singleUpdater a = traverse a id f
   where
@@ -108,11 +84,11 @@ singleUpdater a = traverse a id f
 
 priceAtT :: Array U DIM1 Double
 priceAtT = fromListUnboxed (Z :. m+1) [max 0 (deltaX * (fromIntegral j) - k) | j <- [0..m]]
-\end{code}
+~~~~
 
 Now suppose we want to price a spot ladder then we would like to apply the same update function to slightly modified payoffs (the terminal boundary condition). First let's utilise our single update function to work over two dimensional grid.
 
-\begin{code}
+~~~~ { .haskell }
 multiUpdater :: Source r Double => Array r DIM2 Double -> Array D DIM2 Double
 multiUpdater a = fromFunction (extent a) f
      where
@@ -121,28 +97,28 @@ multiUpdater a = fromFunction (extent a) f
          where
            x :: Array D DIM1 Double
            x = slice a (Any :. jx)
-\end{code}
+~~~~
 
 We define our spot ladder on a call to be many calls each with a
 strike differing by 10 basis points (a basis point is one hundredth of
 one percent).
 
-\begin{code}
+~~~~ { .haskell }
 priceAtTMulti :: Array U DIM2 Double
 priceAtTMulti = fromListUnboxed (Z :. m+1 :. p+1)
                 [ max 0 (deltaX * (fromIntegral j) - (k + (fromIntegral l)/1000.0))
                 | j <- [0..m]
                 , l <- [0..p]
                 ]
-\end{code}
+~~~~
 
 Now we can test our spot ladder pricer. Note that we force the
 evaluation of our two dimensional array at each time step. If we do
-not do that then we end up with a leak as presumably {\em repa} tries to
+not do that then we end up with a leak as presumably `repa` tries to
 fuse many updates. Moreover fusing updates across time steps does not
 really buy us anything.
 
-\begin{code}
+~~~~ { .haskell }
 testMulti :: IO (Array U DIM2 Double)
 testMulti = updaterM priceAtTMulti
   where
@@ -156,6 +132,6 @@ main :: IO ()
 main = do t <- testMulti
           vStrikes <- pickAtStrike 27 t
           putStrLn $ show vStrikes
-\end{code}
+~~~~
 
-\end{document}
+ 

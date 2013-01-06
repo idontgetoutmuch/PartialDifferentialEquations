@@ -22,18 +22,48 @@
 
 \begin{document}
 
-Now we are able to price options using parallelism, let us consider a more exotic financial option.
+Now we are able to price options using parallelism, let us consider a
+more exotic financial option.
 
-Let us suppose that we wish to price an Asian call option\cite{Zvan98discreteasian}. The payoff at time $T$ is
+Let us suppose that we wish to price an Asian call
+option\cite{Zvan98discreteasian}. The payoff at time $T$ is
 
 $$
-{\Bigg(\frac{\Sigma_{i=1}^n S_{t_i}}{n} -k\Bigg)}^+
+{\Bigg(\frac{\Sigma_{i=1}^n x_{t_i}}{n} -k\Bigg)}^+
 $$
 
-Thus the payoff depends not just on the value of the underlying $S$ at
-time $T$ but also on the path taken. We do not need to know the entire path, just the average at discrete points in time. Thus the payoff is a function of time, the value of the underlying and the average of the underlying sampled at discrete points in time $z(x,a,t)$.
+Thus the payoff depends not just on the value of the underlying $x$ at
+time $T$ but also on the path taken. We do not need to know the entire
+path, just the average at discrete points in time. Thus the payoff is
+a function of time, the value of the underlying and the average of the
+underlying sampled at discrete points in time $z(x,a,t)$.
 
+We can rewrite this equation as a recursive relation:
 
+$$
+a_n = a_{n-1} + \frac{x_n -a_{n-1}}{n}
+$$
+
+If $t_n$ is the $n$-th sampling time then for small $\epsilon$ let:
+
+\begin{align*}
+t^+ &= t_n + \epsilon \\
+t^- &= t_n - \epsilon
+\end{align*}
+
+Now we can write the equation for the value of the average just before
+and after the sampling time as:
+
+$$
+a(x, t^+) = a(x, t^-) + \frac{x - a(x, t^-)}{n}
+$$
+
+Since there is no arbitrage, the value of the option cannot change as
+it crosses the sampling date:
+
+$$
+z(x, a^+, t^+) = z(x, a^-, t^-)
+$$
 
 \begin{code}
 {-# LANGUAGE FlexibleContexts, TypeOperators #-}

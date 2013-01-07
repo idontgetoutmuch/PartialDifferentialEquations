@@ -65,6 +65,21 @@ $$
 z(x, a^+, t^+) = z(x, a^-, t^-)
 $$
 
+Substituting in:
+
+$$
+z(x, a + (x - a)/n, t^+) = z(x, a, t^-) 
+$$
+
+But we have a problem, we do not know the value of $a$. Away from the
+sampling times there is no dependence on $a$ as its value cannot
+change.  We already know how to step back in time in this case: we use
+the pricer we have already developed.
+
+Thus we can diffuse backwards from the final payoff but when we reach
+a sampling date, we reset the values on the grid using the interfacing
+formula above.
+
 \begin{code}
 {-# LANGUAGE FlexibleContexts, TypeOperators #-}
 
@@ -73,6 +88,13 @@ $$
 import Data.Array.Repa as Repa
 import Control.Monad
 
+import Text.Printf
+
+import Diagrams.Prelude ((<>), lw, (#), red, fc, circle, fontSize, r2,
+                         mconcat, translate, rect, fromOffsets, topLeftText)
+
+import Diagrams.Backend.Cairo.CmdLine
+
 r, sigma, k, t, xMax, deltaX, deltaT :: Double
 m, n, p :: Int
 r = 0.05
@@ -80,11 +102,14 @@ sigma = 0.2
 k = 50.0
 t = 3.0
 m = 80
-p = 99
+p = 10
 xMax = 150
 deltaX = xMax / (fromIntegral m)
 n = 800
 deltaT = t / (fromIntegral n)
+
+tickSize :: Double
+tickSize = 0.1
 
 singleUpdater :: Array D DIM1 Double -> Array D DIM1 Double
 singleUpdater a = traverse a id f
@@ -128,10 +153,24 @@ testMulti = updaterM priceAtTMulti
 pickAtStrike :: Monad m => Int -> Array U DIM2 Double -> m (Array U DIM1 Double)
 pickAtStrike n t = computeP $ slice t (Any :. n :. All)
 
+background = rect 1.1 1.1 # translate (r2 (0.5, 0.5))
+
+ticks xs = (mconcat $ Prelude.map tick xs)  <> line
+  where
+    maxX   = maximum xs
+    line   = fromOffsets [r2 (maxX, 0)]
+    tSize  = maxX / 100
+    tick x = endpt # translate tickShift
+      where
+        tickShift = r2 (x, 0)
+        endpt     = topLeftText (printf "%.2f" x) # fontSize (tSize * 2) <>
+                    circle tSize # fc red  # lw 0
 main :: IO ()
 main = do t <- testMulti
           vStrikes <- pickAtStrike 27 t
           putStrLn $ show vStrikes
+          defaultMain $ ticks [0.0, tickSize..1.0] <>
+                        background
 
 data PointedArrayP a = PointedArrayP Int (Array U DIM2 a)
   deriving Show

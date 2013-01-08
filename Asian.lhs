@@ -176,12 +176,20 @@ ticksY xs = (mconcat $ Prelude.map tick xs)  <> line
         tickShift = r2 (0, x)
         endpt     = topLeftText (printf "%.2f" x) # fontSize (tSize * 2) <>
                     circle tSize # fc red  # lw 0
+
+grid xs = mconcat lines
+  where
+    maxX   = maximum xs
+    lines = Prelude.map line xs
+    line x = fromOffsets [r2 (x, 0), r2 (0, maxX)]
+
 main :: IO ()
 main = do t <- testMulti
           vStrikes <- pickAtStrike 27 t
           putStrLn $ show vStrikes
           defaultMain $ ticks  [0.0, tickSize..1.0] <>
                         ticksY [0.0, tickSize..1.0] <>
+                        grid   [0.0, tickSize..1.0] <>
                         background
 
 data PointedArrayP a = PointedArrayP Int (Array U DIM2 a)

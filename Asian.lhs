@@ -165,11 +165,23 @@ ticks xs = (mconcat $ Prelude.map tick xs)  <> line
         tickShift = r2 (x, 0)
         endpt     = topLeftText (printf "%.2f" x) # fontSize (tSize * 2) <>
                     circle tSize # fc red  # lw 0
+
+ticksY xs = (mconcat $ Prelude.map tick xs)  <> line
+  where
+    maxX   = maximum xs
+    line   = fromOffsets [r2 (0, maxX)]
+    tSize  = maxX / 100
+    tick x = endpt # translate tickShift
+      where
+        tickShift = r2 (0, x)
+        endpt     = topLeftText (printf "%.2f" x) # fontSize (tSize * 2) <>
+                    circle tSize # fc red  # lw 0
 main :: IO ()
 main = do t <- testMulti
           vStrikes <- pickAtStrike 27 t
           putStrLn $ show vStrikes
-          defaultMain $ ticks [0.0, tickSize..1.0] <>
+          defaultMain $ ticks  [0.0, tickSize..1.0] <>
+                        ticksY [0.0, tickSize..1.0] <>
                         background
 
 data PointedArrayP a = PointedArrayP Int (Array U DIM2 a)

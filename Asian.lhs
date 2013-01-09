@@ -76,9 +76,16 @@ sampling times there is no dependence on $a$ as its value cannot
 change.  We already know how to step back in time in this case: we use
 the pricer we have already developed.
 
-Thus we can diffuse backwards from the final payoff but when we reach
-a sampling date, we reset the values on the grid using the interfacing
-formula above.
+So let us assume a value for $a$. Then we can diffuse backwards from
+the final payoff but when we reach a sampling date, we reset the
+values on the grid using the interfacing formula above.
+
+In summary, we assume a set of values for $a$ and then diffuse
+backwards for each pricer with that $a$; at each sampling time, we
+reset the values of the pricers and continue until we reach the last
+sampling time. At this point, $x = a$ so we diffuse one pricer back to
+the start time which gives us the price of the option for any given
+$x$ on our grid.
 
 \begin{code}
 {-# LANGUAGE FlexibleContexts, TypeOperators #-}
@@ -144,6 +151,13 @@ priceAtTMulti = fromListUnboxed (Z :. m+1 :. p+1)
                 , l <- [0..p]
                 ]
 
+priceAtTAsian :: Array U DIM2 Double
+priceAtTAsian = fromListUnboxed (Z :. m+1 :. p+1) 
+                [ max 0 (deltaX * (fromIntegral j) - k)
+                | j <- [0..m],
+                _l <- [0..p]
+                ]
+
 testMulti :: IO (Array U DIM2 Double)
 testMulti = updaterM priceAtTMulti
   where
@@ -194,11 +208,6 @@ main = do t <- testMulti
 
 data PointedArrayP a = PointedArrayP Int (Array U DIM2 a)
   deriving Show
-
-priceAtTP2 :: PointedArrayP Double
-priceAtTP2 =
-  PointedArrayP 0 (fromListUnboxed (Z :. m+1 :. p+1) 
-                [ max 0 (deltaX * (fromIntegral j) - k) | j <- [0..m], _l <- [0..p] ])
 
 fP :: PointedArrayP Double -> Array D DIM1 Double
 fP (PointedArrayP j _x) | j == 0 = fromFunction (Z :. p+1) (const 0.0)

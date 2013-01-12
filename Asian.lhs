@@ -98,7 +98,8 @@ import Control.Monad
 import Text.Printf
 
 import Diagrams.Prelude ((<>), lw, (#), red, fc, circle, fontSize, r2,
-                         mconcat, translate, rect, fromOffsets, topLeftText)
+                         mconcat, translate, rect, fromOffsets, topLeftText,
+                         alignedText)
 
 import Diagrams.Backend.Cairo.CmdLine
 
@@ -167,12 +168,12 @@ testMulti = updaterM priceAtTMulti
 pickAtStrike :: Monad m => Int -> Array U DIM2 Double -> m (Array U DIM1 Double)
 pickAtStrike n t = computeP $ slice t (Any :. n :. All)
 
-background = rect 1.1 1.1 # translate (r2 (0.5, 0.5))
+background = rect 1.2 1.2 # translate (r2 (0.5, 0.5))
 
 ticks xs = (mconcat $ Prelude.map tick xs)  <> line
   where
     maxX   = maximum xs
-    line   = fromOffsets [r2 (maxX, 0)]
+    line   = fromOffsets [r2 (maxX, 0)] # lw 0.001
     tSize  = maxX / 100
     tick x = endpt # translate tickShift
       where
@@ -183,19 +184,22 @@ ticks xs = (mconcat $ Prelude.map tick xs)  <> line
 ticksY xs = (mconcat $ Prelude.map tick xs)  <> line
   where
     maxX   = maximum xs
-    line   = fromOffsets [r2 (0, maxX)]
+    line   = fromOffsets [r2 (0, maxX)] # lw 0.001
     tSize  = maxX / 100
     tick x = endpt # translate tickShift
       where
         tickShift = r2 (0, x)
-        endpt     = topLeftText (printf "%.2f" x) # fontSize (tSize * 2) <>
+        endpt     = myText (printf "%.2f" x) # fontSize (tSize * 2) <>
                     circle tSize # fc red  # lw 0
+        myText = alignedText 1.0 0.5
 
-grid xs = mconcat lines
+grid xs = mconcat lines <> mconcat lineYs
   where
     maxX   = maximum xs
     lines = Prelude.map line xs
-    line x = fromOffsets [r2 (x, 0), r2 (0, maxX)]
+    lineYs = Prelude.map lineY xs
+    line x  = fromOffsets [r2 (x, 0), r2 (0, maxX)] # lw 0.001
+    lineY y = fromOffsets [r2 (0, y), r2 (maxX, 0)] # lw 0.001
 
 main :: IO ()
 main = do t <- testMulti

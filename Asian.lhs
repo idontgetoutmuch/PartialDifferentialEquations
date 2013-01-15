@@ -100,9 +100,12 @@ import Text.Printf
 import Diagrams.Prelude ((<>), lw, (#), red, fc, circle, fontSize, r2,
                          mconcat, translate, rect, fromOffsets, topLeftText,
                          alignedText)
-
 import Diagrams.Backend.Cairo.CmdLine
+\end{code}
 
+First some constants for the payoff and the pricer.
+
+\begin{code}
 r, sigma, k, t, xMax, deltaX, deltaT :: Double
 m, n, p :: Int
 r = 0.05
@@ -115,10 +118,23 @@ xMax = 150
 deltaX = xMax / (fromIntegral m)
 n = 800
 deltaT = t / (fromIntegral n)
+\end{code}
 
+We need some constants to make sure our diagrams render correctly.
+
+\begin{code}
 tickSize :: Double
 tickSize = 0.1
 
+lineWidth :: Double
+lineWidth = 0.001
+\end{code}
+
+As before we can define a single pricer that updates the grid over one
+time step and at multiple points in space using the Explicit Euler
+method.
+
+\begin{code}
 singleUpdater :: Array D DIM1 Double -> Array D DIM1 Double
 singleUpdater a = traverse a id f
   where
@@ -132,10 +148,12 @@ singleUpdater a = traverse a id f
         a = deltaT * (sigma^2 * (fromIntegral ix)^2 - r * (fromIntegral ix)) / 2
         b = 1 - deltaT * (r  + sigma^2 * (fromIntegral ix)^2)
         c = deltaT * (sigma^2 * (fromIntegral ix)^2 + r * (fromIntegral ix)) / 2
+\end{code}
 
-priceAtT :: Array U DIM1 Double
-priceAtT = fromListUnboxed (Z :. m+1) [max 0 (deltaX * (fromIntegral j) - k) | j <- [0..m]]
+Again we can extend this to update many pricers on one time step and
+multiple points in space.
 
+\begin{code}
 multiUpdater :: Source r Double => Array r DIM2 Double -> Array D DIM2 Double
 multiUpdater a = fromFunction (extent a) f
      where
@@ -144,27 +162,39 @@ multiUpdater a = fromFunction (extent a) f
          where
            x :: Array D DIM1 Double
            x = slice a (Any :. jx)
+\end{code}
 
-priceAtTMulti :: Array U DIM2 Double
-priceAtTMulti = fromListUnboxed (Z :. m+1 :. p+1)
-                [ max 0 (deltaX * (fromIntegral j) - (k + (fromIntegral l)/1000.0))
-                | j <- [0..m]
-                , l <- [0..p]
-                ]
+We define the boundary condition at the maturity date of our Asian
+option. Notice for each pricer the boundary condition is constant,
+this being determined by the value of the Asian payoff.
 
+\begin{code}
 priceAtTAsian :: Array U DIM2 Double
 priceAtTAsian = fromListUnboxed (Z :. m+1 :. p+1) 
                 [ max 0 (deltaX * (fromIntegral j) - k)
                 | j <- [0..m],
                 _l <- [0..p]
                 ]
+\end{code}
 
-testMulti :: IO (Array U DIM2 Double)
-testMulti = updaterM priceAtTMulti
+Now instead of stepping all the way back to the initial date of the
+option, we only step back as far as the last Asian time.
+
+\begin{code}
+asianTimes = Prelude.map (\x -> floor $ x*(fromIntegral n)/t) [2.7,2.8,2.9]
+
+testMulti :: Int -> Array U DIM2 Double -> IO (Array U DIM2 Double)
+testMulti n = updaterM
   where
     updaterM :: Monad m => Array U DIM2 Double -> m (Array U DIM2 Double)
     updaterM = foldr (>=>) return (replicate n (computeP . multiUpdater))
 
+justBefore3 = testMulti (n - (asianTimes!!2) -1)  priceAtTAsian
+\end{code}
+
+Now we can do our interfacing.
+
+\begin{code}
 pickAtStrike :: Monad m => Int -> Array U DIM2 Double -> m (Array U DIM1 Double)
 pickAtStrike n t = computeP $ slice t (Any :. n :. All)
 
@@ -173,7 +203,7 @@ background = rect 1.2 1.2 # translate (r2 (0.5, 0.5))
 ticks xs = (mconcat $ Prelude.map tick xs)  <> line
   where
     maxX   = maximum xs
-    line   = fromOffsets [r2 (maxX, 0)] # lw 0.001
+    line   = fromOffsets [r2 (maxX, 0)] # lw lineWidth
     tSize  = maxX / 100
     tick x = endpt # translate tickShift
       where
@@ -184,7 +214,7 @@ ticks xs = (mconcat $ Prelude.map tick xs)  <> line
 ticksY xs = (mconcat $ Prelude.map tick xs)  <> line
   where
     maxX   = maximum xs
-    line   = fromOffsets [r2 (0, maxX)] # lw 0.001
+    line   = fromOffsets [r2 (0, maxX)] # lw lineWidth
     tSize  = maxX / 100
     tick x = endpt # translate tickShift
       where
@@ -198,13 +228,14 @@ grid xs = mconcat lines <> mconcat lineYs
     maxX   = maximum xs
     lines = Prelude.map line xs
     lineYs = Prelude.map lineY xs
-    line x  = fromOffsets [r2 (x, 0), r2 (0, maxX)] # lw 0.001
-    lineY y = fromOffsets [r2 (0, y), r2 (maxX, 0)] # lw 0.001
+    line x  = fromOffsets [r2 (x, 0), r2 (0, maxX)] # lw lineWidth
+    lineY y = fromOffsets [r2 (0, y), r2 (maxX, 0)] # lw lineWidth
 
 main :: IO ()
-main = do t <- testMulti
+main = do t <- testMulti n priceAtTAsian
           vStrikes <- pickAtStrike 27 t
           putStrLn $ show vStrikes
+          putStrLn $ show asianTimes
           defaultMain $ ticks  [0.0, tickSize..1.0] <>
                         ticksY [0.0, tickSize..1.0] <>
                         grid   [0.0, tickSize..1.0] <>

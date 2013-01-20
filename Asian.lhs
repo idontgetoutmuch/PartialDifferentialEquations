@@ -68,7 +68,7 @@ $$
 Substituting in:
 
 $$
-z(x, a + (x - a)/n, t^+) = z(x, a, t^-) 
+z(x, a + (x - a)/n, t^+) = z(x, a, t^-)
 $$
 
 But we have a problem, we do not know the value of $a$. Away from the
@@ -91,31 +91,35 @@ $x$ on our grid.
 {-# LANGUAGE FlexibleContexts, TypeOperators #-}
 
 {-# OPTIONS_GHC -Wall -fno-warn-name-shadowing -fno-warn-type-defaults #-}
-    
-import Data.Array.Repa as Repa
+
+import Data.Array.Repa as Repa hiding ((++))
 import Control.Monad
 
-import Text.Printf
+import Debug.Trace
 
-import Diagrams.Prelude ((<>), lw, (#), red, fc, circle, fontSize, r2,
-                         mconcat, translate, rect, fromOffsets, topLeftText,
-                         alignedText)
-import Diagrams.Backend.Cairo.CmdLine
+-- import Text.Printf
+
+-- import Diagrams.Prelude ((<>), lw, (#), red, fc, circle, fontSize, r2,
+--                          mconcat, translate, rect, fromOffsets, topLeftText,
+--                          alignedText)
+-- import Diagrams.Backend.Cairo.CmdLine
 \end{code}
 
 First some constants for the payoff and the pricer.
 
 \begin{code}
-r, sigma, k, t, xMax, deltaX, deltaT :: Double
+r, sigma, k, t, xMax, aMax, deltaX, deltaT, deltaA:: Double
 m, n, p :: Int
-r = 0.05
+r = 0.00 -- 0.05
 sigma = 0.2
 k = 50.0
 t = 3.0
 m = 80
-p = 10
+p = 5 -- 10
 xMax = 150
 deltaX = xMax / (fromIntegral m)
+aMax = 150
+deltaA = aMax / (fromIntegral p)
 n = 800
 deltaT = t / (fromIntegral n)
 \end{code}
@@ -132,7 +136,9 @@ lineWidth = 0.001
 
 As before we can define a single pricer that updates the grid over one
 time step and at multiple points in space using the Explicit Euler
-method.
+method. We parameterize the upper and lower boundaries $z(0,t)$ and
+$\lim_{x \to \infty}z(x,t)$ as we will want to use our pricer not just
+for a vanilla call option.
 
 \begin{code}
 singleUpdater :: Array D DIM1 Double -> Array D DIM1 Double
@@ -170,10 +176,10 @@ this being determined by the value of the Asian payoff.
 
 \begin{code}
 priceAtTAsian :: Array U DIM2 Double
-priceAtTAsian = fromListUnboxed (Z :. m+1 :. p+1) 
-                [ max 0 (deltaX * (fromIntegral j) - k)
-                | j <- [0..m],
-                _l <- [0..p]
+priceAtTAsian = fromListUnboxed (Z :. m+1 :. p+1)
+                [ max 0 (deltaA * (fromIntegral l) - k)
+                | _j <- [0..m],
+                   l <- [0..p]
                 ]
 \end{code}
 
@@ -181,6 +187,7 @@ Now instead of stepping all the way back to the initial date of the
 option, we only step back as far as the last Asian time.
 
 \begin{code}
+asianTimes :: [Int]
 asianTimes = Prelude.map (\x -> floor $ x*(fromIntegral n)/t) [2.7,2.8,2.9]
 
 testMulti :: Int -> Array U DIM2 Double -> IO (Array U DIM2 Double)
@@ -189,57 +196,101 @@ testMulti n = updaterM
     updaterM :: Monad m => Array U DIM2 Double -> m (Array U DIM2 Double)
     updaterM = foldr (>=>) return (replicate n (computeP . multiUpdater))
 
+justBefore3 :: IO (Array U DIM2 Double)
 justBefore3 = testMulti (n - (asianTimes!!2) -1)  priceAtTAsian
 \end{code}
 
 Now we can do our interfacing.
 
 \begin{code}
+interface :: Array U DIM2 Double -> Array D DIM2 Double
+interface grid = traverse grid id (\_ sh -> f sh)
+  where
+    (Z :. _iMax :. jMax) = extent grid
+    f (Z :. i :. j) = inter
+      where
+        x       = deltaX * (fromIntegral i)
+        aPlus   = deltaA * (fromIntegral j)
+        aMinus  = aPlus + (x - aPlus) / (fromIntegral $ length asianTimes)
+        jLower  = if k > jMax - 1 then jMax - 1 else k
+                    where k = floor $ aMinus / deltaA
+        jUpper  = if (jLower == jMax - 1) then jMax - 1 else jLower + 1
+        aLower  = deltaA * (fromIntegral jLower)
+        prptn   = (aMinus - aLower) / deltaA
+        vLower  = grid!(Z :. i :. jLower)
+        vUpper  = grid!(Z :. i :. jUpper)
+        inter   = vLower + prptn * (vUpper - vLower)
+\end{code}
+
+\begin{code}
 pickAtStrike :: Monad m => Int -> Array U DIM2 Double -> m (Array U DIM1 Double)
 pickAtStrike n t = computeP $ slice t (Any :. n :. All)
 
-background = rect 1.2 1.2 # translate (r2 (0.5, 0.5))
+-- background = rect 1.2 1.2 # translate (r2 (0.5, 0.5))
 
-ticks xs = (mconcat $ Prelude.map tick xs)  <> line
-  where
-    maxX   = maximum xs
-    line   = fromOffsets [r2 (maxX, 0)] # lw lineWidth
-    tSize  = maxX / 100
-    tick x = endpt # translate tickShift
-      where
-        tickShift = r2 (x, 0)
-        endpt     = topLeftText (printf "%.2f" x) # fontSize (tSize * 2) <>
-                    circle tSize # fc red  # lw 0
+-- ticks xs = (mconcat $ Prelude.map tick xs)  <> line
+--   where
+--     maxX   = maximum xs
+--     line   = fromOffsets [r2 (maxX, 0)] # lw lineWidth
+--     tSize  = maxX / 100
+--     tick x = endpt # translate tickShift
+--       where
+--         tickShift = r2 (x, 0)
+--         endpt     = topLeftText (printf "%.2f" x) # fontSize (tSize * 2) <>
+--                     circle tSize # fc red  # lw 0
 
-ticksY xs = (mconcat $ Prelude.map tick xs)  <> line
-  where
-    maxX   = maximum xs
-    line   = fromOffsets [r2 (0, maxX)] # lw lineWidth
-    tSize  = maxX / 100
-    tick x = endpt # translate tickShift
-      where
-        tickShift = r2 (0, x)
-        endpt     = myText (printf "%.2f" x) # fontSize (tSize * 2) <>
-                    circle tSize # fc red  # lw 0
-        myText = alignedText 1.0 0.5
+-- ticksY xs = (mconcat $ Prelude.map tick xs)  <> line
+--   where
+--     maxX   = maximum xs
+--     line   = fromOffsets [r2 (0, maxX)] # lw lineWidth
+--     tSize  = maxX / 100
+--     tick x = endpt # translate tickShift
+--       where
+--         tickShift = r2 (0, x)
+--         endpt     = myText (printf "%.2f" x) # fontSize (tSize * 2) <>
+--                     circle tSize # fc red  # lw 0
+--         myText = alignedText 1.0 0.5
 
-grid xs = mconcat lines <> mconcat lineYs
-  where
-    maxX   = maximum xs
-    lines = Prelude.map line xs
-    lineYs = Prelude.map lineY xs
-    line x  = fromOffsets [r2 (x, 0), r2 (0, maxX)] # lw lineWidth
-    lineY y = fromOffsets [r2 (0, y), r2 (maxX, 0)] # lw lineWidth
+-- grid xs = mconcat lines <> mconcat lineYs
+--   where
+--     maxX   = maximum xs
+--     lines = Prelude.map line xs
+--     lineYs = Prelude.map lineY xs
+--     line x  = fromOffsets [r2 (x, 0), r2 (0, maxX)] # lw lineWidth
+--     lineY y = fromOffsets [r2 (0, y), r2 (maxX, 0)] # lw lineWidth
 
 main :: IO ()
-main = do t <- testMulti n priceAtTAsian
-          vStrikes <- pickAtStrike 27 t
-          putStrLn $ show vStrikes
+main = do -- t <- testMulti n priceAtTAsian
+          -- vStrikes <- pickAtStrike 27 t
+          -- putStrLn $ show vStrikes
+          let (Z :. i :. j) = extent priceAtTAsian
+
+          let aSlicesD'' = Prelude.map (\m -> slice priceAtTAsian (Any :. m )) [0..j-1]
+
+          aSlices'' <- mapM computeP aSlicesD'' :: IO [Array U DIM1 Double]
+          mapM_ (putStrLn . show . toList) aSlices''
+
           putStrLn $ show asianTimes
-          defaultMain $ ticks  [0.0, tickSize..1.0] <>
-                        ticksY [0.0, tickSize..1.0] <>
-                        grid   [0.0, tickSize..1.0] <>
-                        background
+          grid <- justBefore3
+          let aSlicesD :: [Array D DIM1 Double]
+              aSlicesD = Prelude.map (\m -> slice grid (Any :. m)) [0..j-1]
+          aSlices <- mapM computeP aSlicesD :: IO [Array U DIM1 Double]
+          mapM_ (putStrLn . show . toList) aSlices
+
+          putStrLn $ show $ extent grid
+
+          -- grid' <- computeP $ interface grid :: IO (Array U DIM2 Double)
+
+          -- let xSlicesD' :: [Array D DIM1 Double]
+          --     xSlicesD' = Prelude.map (\n -> slice grid' (Any :. n :. All)) [0..i-1]
+          -- xSlices' <- mapM computeP xSlicesD' :: IO [Array U DIM1 Double]
+          -- mapM_ (putStrLn . show . toList) xSlices'
+
+          -- putStrLn $ show $ extent priceAtTAsian
+          -- defaultMain $ ticks  [0.0, tickSize..1.0] <>
+          --               ticksY [0.0, tickSize..1.0] <>
+          --               grid   [0.0, tickSize..1.0] <>
+          --               background
 \end{code}
 
 \end{document}

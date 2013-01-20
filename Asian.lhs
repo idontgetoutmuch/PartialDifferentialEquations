@@ -93,9 +93,8 @@ $x$ on our grid.
 {-# OPTIONS_GHC -Wall -fno-warn-name-shadowing -fno-warn-type-defaults #-}
 
 import Data.Array.Repa as Repa hiding ((++))
+import Data.Array.Repa.Repr.Unboxed as RepaU
 import Control.Monad
-
-import Debug.Trace
 
 -- import Text.Printf
 
@@ -114,7 +113,7 @@ r = 0.00 -- 0.05
 sigma = 0.2
 k = 50.0
 t = 3.0
-m = 80
+m = 6 -- 80
 p = 5 -- 10
 xMax = 150
 deltaX = xMax / (fromIntegral m)
@@ -141,12 +140,12 @@ $\lim_{x \to \infty}z(x,t)$ as we will want to use our pricer not just
 for a vanilla call option.
 
 \begin{code}
-singleUpdater :: Array D DIM1 Double -> Array D DIM1 Double
-singleUpdater a = traverse a id f
+singleUpdater :: Double -> Double -> Array D DIM1 Double -> Array D DIM1 Double
+singleUpdater lb ub a = traverse a id f
   where
     Z :. m = extent a
-    f _get (Z :. ix) | ix == 0   = 0.0
-    f _get (Z :. ix) | ix == m-1 = xMax - k
+    f _get (Z :. ix) | ix == 0   = lb
+    f _get (Z :. ix) | ix == m-1 = ub
     f  get (Z :. ix)             = a * get (Z :. ix-1) +
                                    b * get (Z :. ix) +
                                    c * get (Z :. ix+1)
@@ -160,12 +159,16 @@ Again we can extend this to update many pricers on one time step and
 multiple points in space.
 
 \begin{code}
-multiUpdater :: Source r Double => Array r DIM2 Double -> Array D DIM2 Double
-multiUpdater a = fromFunction (extent a) f
+multiUpdater :: Source r Double =>
+                Array U DIM1 (Double, Double) ->
+                Array r DIM2 Double ->
+                Array D DIM2 Double
+multiUpdater lubs a = fromFunction (extent a) f
      where
        f :: DIM2 -> Double
-       f (Z :. ix :. jx) = (singleUpdater x)!(Z :. ix)
+       f (Z :. ix :. jx) = (singleUpdater lb ub x)!(Z :. ix)
          where
+           (lb, ub) = lubs!(Z :. jx)
            x :: Array D DIM1 Double
            x = slice a (Any :. jx)
 \end{code}
@@ -181,6 +184,12 @@ priceAtTAsian = fromListUnboxed (Z :. m+1 :. p+1)
                 | _j <- [0..m],
                    l <- [0..p]
                 ]
+
+asianBCs :: Array U DIM1 (Double, Double)
+asianBCs = RepaU.zip lbs ubs
+             where
+               lbs = computeS $ slice priceAtTAsian (Any :. (0 ::Int) :. All)
+               ubs = computeS $ slice priceAtTAsian (Any :. m :. All)
 \end{code}
 
 Now instead of stepping all the way back to the initial date of the
@@ -190,14 +199,16 @@ option, we only step back as far as the last Asian time.
 asianTimes :: [Int]
 asianTimes = Prelude.map (\x -> floor $ x*(fromIntegral n)/t) [2.7,2.8,2.9]
 
-testMulti :: Int -> Array U DIM2 Double -> IO (Array U DIM2 Double)
-testMulti n = updaterM
+testMulti :: Int -> Array U DIM1 (Double, Double) ->
+             Array U DIM2 Double ->
+             IO (Array U DIM2 Double)
+testMulti n lubs = updaterM
   where
     updaterM :: Monad m => Array U DIM2 Double -> m (Array U DIM2 Double)
-    updaterM = foldr (>=>) return (replicate n (computeP . multiUpdater))
+    updaterM = foldr (>=>) return (replicate n (computeP . multiUpdater lubs))
 
 justBefore3 :: IO (Array U DIM2 Double)
-justBefore3 = testMulti (n - (asianTimes!!2) -1)  priceAtTAsian
+justBefore3 = testMulti (n - (asianTimes!!2) -1) asianBCs priceAtTAsian
 \end{code}
 
 Now we can do our interfacing.
@@ -263,7 +274,7 @@ main :: IO ()
 main = do -- t <- testMulti n priceAtTAsian
           -- vStrikes <- pickAtStrike 27 t
           -- putStrLn $ show vStrikes
-          let (Z :. i :. j) = extent priceAtTAsian
+          let (Z :. _i :. j) = extent priceAtTAsian
 
           let aSlicesD'' = Prelude.map (\m -> slice priceAtTAsian (Any :. m )) [0..j-1]
 
@@ -279,12 +290,12 @@ main = do -- t <- testMulti n priceAtTAsian
 
           putStrLn $ show $ extent grid
 
-          -- grid' <- computeP $ interface grid :: IO (Array U DIM2 Double)
+          grid' <- computeP $ interface grid :: IO (Array U DIM2 Double)
 
-          -- let xSlicesD' :: [Array D DIM1 Double]
-          --     xSlicesD' = Prelude.map (\n -> slice grid' (Any :. n :. All)) [0..i-1]
-          -- xSlices' <- mapM computeP xSlicesD' :: IO [Array U DIM1 Double]
-          -- mapM_ (putStrLn . show . toList) xSlices'
+          let aSlicesD' :: [Array D DIM1 Double]
+              aSlicesD' = Prelude.map (\m -> slice grid' (Any :. m)) [0..j-1]
+          aSlices' <- mapM computeP aSlicesD' :: IO [Array U DIM1 Double]
+          mapM_ (putStrLn . show . toList) aSlices'
 
           -- putStrLn $ show $ extent priceAtTAsian
           -- defaultMain $ ticks  [0.0, tickSize..1.0] <>

@@ -114,7 +114,7 @@ sigma = 0.2
 k = 50.0
 t = 3.0
 m = 6 -- 80
-p = 5 -- 10
+p = 6 -- 10
 xMax = 150
 deltaX = xMax / (fromIntegral m)
 aMax = 150
@@ -209,6 +209,9 @@ testMulti n lubs = updaterM
 
 justBefore3 :: IO (Array U DIM2 Double)
 justBefore3 = testMulti (n - (asianTimes!!2) -1) asianBCs priceAtTAsian
+
+justBefore2 :: IO (Array U DIM2 Double)
+justBefore2 = testMulti undefined undefined undefined
 \end{code}
 
 Now we can do our interfacing.
@@ -296,6 +299,7 @@ main = do -- t <- testMulti n priceAtTAsian
               aSlicesD' = Prelude.map (\m -> slice grid' (Any :. m)) [0..j-1]
           aSlices' <- mapM computeP aSlicesD' :: IO [Array U DIM1 Double]
           mapM_ (putStrLn . show . toList) aSlices'
+          putStrLn $ show $ Prelude.zipWith ((!!)) (Prelude.map toList aSlices') [0,1..p]
 
           -- putStrLn $ show $ extent priceAtTAsian
           -- defaultMain $ ticks  [0.0, tickSize..1.0] <>

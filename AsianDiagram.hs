@@ -1,20 +1,25 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# OPTIONS_GHC -Wall -fno-warn-name-shadowing -fno-warn-type-defaults #-}
 
 import Text.Printf
 
 import Diagrams.Prelude
-import Diagrams.Backend.SVG
-import Diagrams.Backend.SVG.CmdLine
+import Diagrams.Backend.Cairo
+import Diagrams.Backend.Cairo.CmdLine
 
-import Diagrams.TwoD.Text
-
-type MyDiagram = Diagram SVG R2
+type MyDiagram = Diagram Cairo R2
 
 tickSize :: Double
 tickSize = 0.1
 
 gridLineWidth :: Double
 gridLineWidth = 0.001
+
+fSize :: Double
+fSize = 0.02
+
+cSize :: Double
+cSize = 0.01
 
 background :: MyDiagram
 background = rect 1.2 1.2 # translate (r2 (0.5, 0.5))
@@ -25,16 +30,12 @@ values xys vs = mconcat $ zipWith tick zs vs
     xs = map fst xys
     ys = map snd xys
     zs = [ (x, y) | x <- xs, y <- ys]
-    -- FIXME: This is clearly wrong here and may not even have been
-    -- right where it was used originally.
-    maxX  = maximum xs
-    tSize = maxX / 100
 
     tick (x, y) v = endpt # translate tickShift
       where
         tickShift = r2 (x, y)
-        endpt     = myText (printf "%.2f" v) # fontSize (tSize * 2) <>
-                    circle tSize # fc blue # lw 0
+        endpt     = myText (printf "%.2f" v) # fontSize fSize <>
+                    circle (cSize /2 ) # fc blue # opacity 0.5 # lw 0
         myText = alignedText 0.0 0.0
 
 ticks :: [Double] -> MyDiagram
@@ -42,24 +43,22 @@ ticks xs = (mconcat $ Prelude.map tick xs)  <> line
   where
     maxX   = maximum xs
     line   = fromOffsets [r2 (maxX, 0)] # lw gridLineWidth
-    tSize  = maxX / 100
     tick x = endpt # translate tickShift
       where
         tickShift = r2 (x, 0)
-        endpt     = topLeftText (printf "%.2f" x) # fontSize (tSize * 2) <>
-                    circle tSize # fc red # lw 0
+        endpt     = topLeftText (printf "%.2f" x) # fontSize fSize <>
+                    circle cSize # fc red # lw 0
 
 ticksY :: [Double] -> MyDiagram
 ticksY xs = (mconcat $ Prelude.map tick xs)  <> line
   where
     maxX   = maximum xs
     line   = fromOffsets [r2 (0, maxX)] # lw gridLineWidth
-    tSize  = maxX / 100
     tick x = endpt # translate tickShift
       where
         tickShift = r2 (0, x)
-        endpt     = myText (printf "%.2f" x) # fontSize (tSize * 2) <>
-                    circle tSize # fc red # lw 0
+        endpt     = myText (printf "%.2f" x) # fontSize fSize <>
+                    circle cSize # fc red # lw 0
         myText = alignedText 1.0 0.5
 
 grid :: [Double] -> MyDiagram

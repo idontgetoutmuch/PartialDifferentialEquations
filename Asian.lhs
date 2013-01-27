@@ -95,13 +95,11 @@ $x$ on our grid.
 import Data.Array.Repa as Repa hiding ((++))
 import Data.Array.Repa.Repr.Unboxed as RepaU
 import Control.Monad
+import Data.Map (Map)
+import qualified Data.Map as Map
+import AsianDiagram
+import Diagrams.Backend.Cairo.CmdLine
 
--- import Text.Printf
-
--- import Diagrams.Prelude ((<>), lw, (#), red, fc, circle, fontSize, r2,
---                          mconcat, translate, rect, fromOffsets, topLeftText,
---                          alignedText)
--- import Diagrams.Backend.Cairo.CmdLine
 \end{code}
 
 First some constants for the payoff and the pricer.
@@ -121,16 +119,6 @@ aMax = 150
 deltaA = aMax / (fromIntegral p)
 n = 800
 deltaT = t / (fromIntegral n)
-\end{code}
-
-We need some constants to make sure our diagrams render correctly.
-
-\begin{code}
-tickSize :: Double
-tickSize = 0.1
-
-lineWidth :: Double
-lineWidth = 0.001
 \end{code}
 
 As before we can define a single pricer that updates the grid over one
@@ -236,42 +224,35 @@ interface grid = traverse grid id (\_ sh -> f sh)
         inter   = vLower + prptn * (vUpper - vLower)
 \end{code}
 
+But now we are stuck. What are the boundary conditions for each of the
+pricers after we have done our interfacing?
+
+$$
+\frac{\partial V}{\partial t} + \half \sigma^2 S^2 \frac{\partial^2 V}{\partial S^2} + r S\frac{\partial V}{\partial S} - rV = 0
+$$
+
 \begin{code}
 pickAtStrike :: Monad m => Int -> Array U DIM2 Double -> m (Array U DIM1 Double)
 pickAtStrike n t = computeP $ slice t (Any :. n :. All)
 
--- background = rect 1.2 1.2 # translate (r2 (0.5, 0.5))
+testArr :: Array U DIM2 Double
+testArr = fromListUnboxed (Z :. (5 :: Int) :. (3 :: Int)) [1..15]
 
--- ticks xs = (mconcat $ Prelude.map tick xs)  <> line
---   where
---     maxX   = maximum xs
---     line   = fromOffsets [r2 (maxX, 0)] # lw lineWidth
---     tSize  = maxX / 100
---     tick x = endpt # translate tickShift
---       where
---         tickShift = r2 (x, 0)
---         endpt     = topLeftText (printf "%.2f" x) # fontSize (tSize * 2) <>
---                     circle tSize # fc red  # lw 0
-
--- ticksY xs = (mconcat $ Prelude.map tick xs)  <> line
---   where
---     maxX   = maximum xs
---     line   = fromOffsets [r2 (0, maxX)] # lw lineWidth
---     tSize  = maxX / 100
---     tick x = endpt # translate tickShift
---       where
---         tickShift = r2 (0, x)
---         endpt     = myText (printf "%.2f" x) # fontSize (tSize * 2) <>
---                     circle tSize # fc red  # lw 0
---         myText = alignedText 1.0 0.5
-
--- grid xs = mconcat lines <> mconcat lineYs
---   where
---     maxX   = maximum xs
---     lines = Prelude.map line xs
---     lineYs = Prelude.map lineY xs
---     line x  = fromOffsets [r2 (x, 0), r2 (0, maxX)] # lw lineWidth
---     lineY y = fromOffsets [r2 (0, y), r2 (maxX, 0)] # lw lineWidth
+gridMap :: (Monad m , Source a Double) =>
+           Array a DIM2 Double -> m (CoordinateIx `Map` CoordinateValue)
+gridMap testArr = liftM (Map.map (\(x, y, z) -> CoordinateValue x y z)) $
+                  liftM Map.fromList $
+                  liftM2 Prelude.zip (liftM toList keys) (liftM toList vals)
+  where
+    keys ::  Monad m => m (Array U DIM2 (Int, Int))
+    keys = computeP $
+           Repa.map (\(x, y, _) -> (x, y)) $
+           decorate testArr
+    vals :: Monad m => m (Array U DIM2 (Double, Double, Double))
+    vals = computeP $
+           Repa.map (\(x, y, z) -> (fromIntegral x / fromIntegral m, fromIntegral y / fromIntegral p, z)) $
+           decorate testArr
+    decorate testArr = traverse testArr id (\f (Z :. i :. j) -> (i, j , f (Z :. i :. j)))
 
 main :: IO ()
 main = do -- t <- testMulti n priceAtTAsian
@@ -293,6 +274,9 @@ main = do -- t <- testMulti n priceAtTAsian
 
           putStrLn $ show $ extent grid
 
+          foo <- gridMap grid
+          defaultMain $ drawValues foo
+
           grid' <- computeP $ interface grid :: IO (Array U DIM2 Double)
 
           let aSlicesD' :: [Array D DIM1 Double]
@@ -301,11 +285,6 @@ main = do -- t <- testMulti n priceAtTAsian
           mapM_ (putStrLn . show . toList) aSlices'
           putStrLn $ show $ Prelude.zipWith ((!!)) (Prelude.map toList aSlices') [0,1..p]
 
-          -- putStrLn $ show $ extent priceAtTAsian
-          -- defaultMain $ ticks  [0.0, tickSize..1.0] <>
-          --               ticksY [0.0, tickSize..1.0] <>
-          --               grid   [0.0, tickSize..1.0] <>
-          --               background
 \end{code}
 
 \end{document}

@@ -1,16 +1,20 @@
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts, TypeOperators #-}
 {-# OPTIONS_GHC -Wall -fno-warn-name-shadowing -fno-warn-type-defaults #-}
 
+module AsianDiagram (
+    CoordinateValue (..)
+  , CoordinateIx
+  , drawValues
+) where
+
 import Text.Printf
+import qualified Data.Map as Map
+import Data.Map (Map)
 
 import Diagrams.Prelude
 import Diagrams.Backend.Cairo
-import Diagrams.Backend.Cairo.CmdLine
 
-type MyDiagram = Diagram Cairo R2
-
-tickSize :: Double
-tickSize = 0.1
+type DiagramC = Diagram Cairo R2
 
 gridLineWidth :: Double
 gridLineWidth = 0.001
@@ -21,10 +25,10 @@ fSize = 0.02
 cSize :: Double
 cSize = 0.01
 
-background :: MyDiagram
+background :: DiagramC
 background = rect 1.2 1.2 # translate (r2 (0.5, 0.5))
 
-values :: [(Double, Double)] -> [Double] -> MyDiagram
+values :: [(Double, Double)] -> [Double] -> DiagramC
 values xys vs = mconcat $ zipWith tick zs vs
   where
     xs = map fst xys
@@ -38,7 +42,7 @@ values xys vs = mconcat $ zipWith tick zs vs
                     circle (cSize /2 ) # fc blue # opacity 0.5 # lw 0
         myText = alignedText 0.0 0.0
 
-ticks :: [Double] -> MyDiagram
+ticks :: [Double] -> DiagramC
 ticks xs = (mconcat $ Prelude.map tick xs)  <> line
   where
     maxX   = maximum xs
@@ -49,7 +53,7 @@ ticks xs = (mconcat $ Prelude.map tick xs)  <> line
         endpt     = topLeftText (printf "%.2f" x) # fontSize fSize <>
                     circle cSize # fc red # lw 0
 
-ticksY :: [Double] -> MyDiagram
+ticksY :: [Double] -> DiagramC
 ticksY xs = (mconcat $ Prelude.map tick xs)  <> line
   where
     maxX   = maximum xs
@@ -61,7 +65,7 @@ ticksY xs = (mconcat $ Prelude.map tick xs)  <> line
                     circle cSize # fc red # lw 0
         myText = alignedText 1.0 0.5
 
-grid :: [Double] -> MyDiagram
+grid :: [Double] -> DiagramC
 grid xs = mconcat lines <> mconcat lineYs
   where
     maxX   = maximum xs
@@ -70,12 +74,21 @@ grid xs = mconcat lines <> mconcat lineYs
     line x  = fromOffsets [r2 (x, 0), r2 (0, maxX)] # lw gridLineWidth
     lineY y = fromOffsets [r2 (0, y), r2 (maxX, 0)] # lw gridLineWidth
 
-main :: IO ()
-main = do let xs = [0.0, tickSize..1.0]
-              ys = [0.0, tickSize..1.0]
-              zs = [0.0, tickSize..1.0]
-          defaultMain $ values (zip xs ys) ([1,2..]) <>
-                        ticks  xs <>
-                        ticksY ys <>
-                        grid zs <>
-                        background
+type CoordinateIx = (Int, Int)
+data CoordinateValue = CoordinateValue {
+                           xCoord :: Double
+                         , yCoord :: Double
+                         , gValue  :: Double
+                         }
+
+drawValues :: CoordinateIx `Map` CoordinateValue -> DiagramC
+drawValues coordValMap =
+       values (zip xs ys) zs
+    <> ticks  xs
+    <> ticksY ys
+    <> grid xs
+    <> background
+  where
+    xs = map xCoord $ Map.elems coordValMap
+    ys = map yCoord $ Map.elems coordValMap
+    zs = map gValue  $ Map.elems coordValMap

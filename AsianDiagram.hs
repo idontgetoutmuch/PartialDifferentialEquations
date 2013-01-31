@@ -5,14 +5,19 @@ module AsianDiagram (
     CoordinateValue (..)
   , CoordinateIx
   , drawValues
+  , drawValues'
 ) where
 
 import Text.Printf
 import qualified Data.Map as Map
 import Data.Map (Map)
 
+import Data.Array.Repa as Repa hiding ((++), map, zipWith)
+
 import Diagrams.Prelude
 import Diagrams.Backend.Cairo
+
+import qualified Debug.Trace as T
 
 type DiagramC = Diagram Cairo R2
 
@@ -29,7 +34,7 @@ background :: DiagramC
 background = rect 1.2 1.2 # translate (r2 (0.5, 0.5))
 
 values :: [(Double, Double)] -> [Double] -> DiagramC
-values xys vs = mconcat $ zipWith tick zs vs
+values xys vs = mconcat $ zipWith tick zs (T.trace ("VS:\n\n" ++ show vs ++ "\n\nXS:\n\n" ++ show (length xs) ++ "\n\nYS:\n\n" ++ show (length ys)) ys)
   where
     xs = map fst xys
     ys = map snd xys
@@ -83,7 +88,7 @@ data CoordinateValue = CoordinateValue {
 
 drawValues :: CoordinateIx `Map` CoordinateValue -> DiagramC
 drawValues coordValMap =
-       values (zip xs ys) zs
+       values (zip xs ys) zs'
     <> ticks  xs
     <> ticksY ys
     <> grid xs
@@ -92,3 +97,21 @@ drawValues coordValMap =
     xs = map xCoord $ Map.elems coordValMap
     ys = map yCoord $ Map.elems coordValMap
     zs = map gValue  $ Map.elems coordValMap
+    zs' = T.trace ("ZS:\n\n" ++ show zs ++ "\n\n") zs
+
+drawValues' :: Source a Double => Array a DIM2 Double -> DiagramC
+drawValues' a =
+      values (zip xs ys) zs
+  <> ticks xs
+  <> ticksY ys
+  <> grid xs
+  <> background
+  where
+    Z :. m :. n = extent a
+    x = fromIntegral m
+    y = fromIntegral n
+    tX = 1.0 / x
+    tY = 1.0 / y
+    xs = takeWhile (< 1.0) $ 0 : map (+tX) xs
+    ys = takeWhile (< 1.0) $ 0 : map (+tY) ys
+    zs = toList a

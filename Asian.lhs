@@ -274,8 +274,8 @@ main = do -- t <- testMulti n priceAtTAsian
 
           putStrLn $ show $ extent grid
 
-          foo <- gridMap grid
-          defaultMain $ drawValues foo
+          -- foo <- gridMap grid
+          defaultMain $ drawValues' grid
 
           grid' <- computeP $ interface grid :: IO (Array U DIM2 Double)
 

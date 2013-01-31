@@ -95,8 +95,6 @@ $x$ on our grid.
 import Data.Array.Repa as Repa hiding ((++))
 import Data.Array.Repa.Repr.Unboxed as RepaU
 import Control.Monad
-import Data.Map (Map)
-import qualified Data.Map as Map
 import AsianDiagram
 import Diagrams.Backend.Cairo.CmdLine
 
@@ -238,22 +236,6 @@ pickAtStrike n t = computeP $ slice t (Any :. n :. All)
 testArr :: Array U DIM2 Double
 testArr = fromListUnboxed (Z :. (5 :: Int) :. (3 :: Int)) [1..15]
 
-gridMap :: (Monad m , Source a Double) =>
-           Array a DIM2 Double -> m (CoordinateIx `Map` CoordinateValue)
-gridMap testArr = liftM (Map.map (\(x, y, z) -> CoordinateValue x y z)) $
-                  liftM Map.fromList $
-                  liftM2 Prelude.zip (liftM toList keys) (liftM toList vals)
-  where
-    keys ::  Monad m => m (Array U DIM2 (Int, Int))
-    keys = computeP $
-           Repa.map (\(x, y, _) -> (x, y)) $
-           decorate testArr
-    vals :: Monad m => m (Array U DIM2 (Double, Double, Double))
-    vals = computeP $
-           Repa.map (\(x, y, z) -> (fromIntegral x / fromIntegral m, fromIntegral y / fromIntegral p, z)) $
-           decorate testArr
-    decorate testArr = traverse testArr id (\f (Z :. i :. j) -> (i, j , f (Z :. i :. j)))
-
 main :: IO ()
 main = do -- t <- testMulti n priceAtTAsian
           -- vStrikes <- pickAtStrike 27 t
@@ -274,8 +256,7 @@ main = do -- t <- testMulti n priceAtTAsian
 
           putStrLn $ show $ extent grid
 
-          -- foo <- gridMap grid
-          defaultMain $ drawValues' grid
+          defaultMain $ drawValues grid
 
           grid' <- computeP $ interface grid :: IO (Array U DIM2 Double)
 

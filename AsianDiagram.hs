@@ -14,8 +14,6 @@ import Data.Array.Repa as Repa hiding ((++), map, zipWith)
 import Diagrams.Prelude
 import Diagrams.Backend.Cairo
 
-import qualified Debug.Trace as T
-
 type DiagramC = Diagram Cairo R2
 
 gridLineWidth :: Double
@@ -30,11 +28,9 @@ cSize = 0.01
 background :: DiagramC
 background = rect 1.2 1.2 # translate (r2 (0.5, 0.5))
 
-values :: [(Double, Double)] -> [Double] -> DiagramC
-values xys vs = mconcat $ zipWith tick zs vs
+values :: [Double] -> [Double] -> [Double] -> DiagramC
+values xs ys vs = mconcat $ zipWith tick zs vs
   where
-    xs = map fst xys
-    ys = map snd xys
     zs = [ (x, y) | x <- xs, y <- ys]
 
     tick (x, y) v = endpt # translate tickShift
@@ -67,14 +63,15 @@ ticksY xs = (mconcat $ Prelude.map tick xs)  <> line
                     circle cSize # fc red # lw 0
         myText = alignedText 1.0 0.5
 
-grid :: [Double] -> DiagramC
-grid xs = mconcat lines <> mconcat lineYs
+grid :: [Double] -> [Double] -> DiagramC
+grid xs ys = mconcat lines <> mconcat lineYs
   where
     maxX   = maximum xs
+    maxY   = maximum ys
     lines = Prelude.map line xs
-    lineYs = Prelude.map lineY xs
+    lineYs = Prelude.map lineY ys
     line x  = fromOffsets [r2 (x, 0), r2 (0, maxX)] # lw gridLineWidth
-    lineY y = fromOffsets [r2 (0, y), r2 (maxX, 0)] # lw gridLineWidth
+    lineY y = fromOffsets [r2 (0, y), r2 (maxY, 0)] # lw gridLineWidth
 
 type CoordinateIx = (Int, Int)
 data CoordinateValue = CoordinateValue {
@@ -85,17 +82,17 @@ data CoordinateValue = CoordinateValue {
 
 drawValues :: Source a Double => Array a DIM2 Double -> DiagramC
 drawValues a =
-      values (zip xs ys) zs
+     values xs ys zs
   <> ticks xs
   <> ticksY ys
-  <> grid xs
+  <> grid xs ys
   <> background
   where
     Z :. m :. n = extent a
-    x = fromIntegral m
-    y = fromIntegral n
+    x = fromIntegral m - 1
+    y = fromIntegral n - 1
     tX = 1.0 / x
     tY = 1.0 / y
-    xs = takeWhile (< 1.0) $ 0 : map (+tX) xs
-    ys = takeWhile (< 1.0) $ 0 : map (+tY) ys
+    xs = take m $ 0 : map (+tX) xs
+    ys = take n $ 0 : map (+tY) ys
     zs = toList a

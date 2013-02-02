@@ -96,6 +96,7 @@ import Data.Array.Repa as Repa hiding ((++))
 import Data.Array.Repa.Repr.Unboxed as RepaU
 import Control.Monad
 import AsianDiagram
+import Diagrams.Prelude((===))
 import Diagrams.Backend.Cairo.CmdLine
 
 \end{code}
@@ -109,8 +110,8 @@ r = 0.00 -- 0.05
 sigma = 0.2
 k = 50.0
 t = 3.0
-m = 6 -- 80
-p = 6 -- 10
+m = 10
+p = 10
 xMax = 150
 deltaX = xMax / (fromIntegral m)
 aMax = 150
@@ -233,9 +234,6 @@ $$
 pickAtStrike :: Monad m => Int -> Array U DIM2 Double -> m (Array U DIM1 Double)
 pickAtStrike n t = computeP $ slice t (Any :. n :. All)
 
-testArr :: Array U DIM2 Double
-testArr = fromListUnboxed (Z :. (5 :: Int) :. (3 :: Int)) [1..15]
-
 main :: IO ()
 main = do -- t <- testMulti n priceAtTAsian
           -- vStrikes <- pickAtStrike 27 t
@@ -254,11 +252,10 @@ main = do -- t <- testMulti n priceAtTAsian
           aSlices <- mapM computeP aSlicesD :: IO [Array U DIM1 Double]
           mapM_ (putStrLn . show . toList) aSlices
 
-          putStrLn $ show $ extent grid
-
-          defaultMain $ drawValues grid
-
           grid' <- computeP $ interface grid :: IO (Array U DIM2 Double)
+
+          defaultMain $     drawValues grid
+                        === drawValues grid'
 
           let aSlicesD' :: [Array D DIM1 Double]
               aSlicesD' = Prelude.map (\m -> slice grid' (Any :. m)) [0..j-1]

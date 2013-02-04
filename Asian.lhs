@@ -246,18 +246,50 @@ $$
 \frac{\partial z(0,t)}{\partial t} - rz = 0
 $$
 
-\begin{code}
-uBoundaryUpdater :: Source a Double => Array a DIM1 Double -> Double
-uBoundaryUpdater a = undefined
-  where
-    Z :. m = extent a
-    x = a!(Z :. m - 1)
-    y = a!(Z :. m - 2)
+The corresponding difference equation for the lower boundary is:
 
+$$
+\frac{z_0^{n+1} - z_0^n}{\Delta t} -rz_0^n = 0
+$$
+
+Which is easily represented in Haskell (rembering we are stepping
+backwards in time).
+
+\begin{code}
 lBoundaryUpdater :: Source a Double => Array a DIM1 Double -> Double
 lBoundaryUpdater a = x - deltaT * r * x
   where
     x = a!(Z :. (0 :: Int))
+\end{code}
+
+The corresponding difference equation for the upper boundary is:
+
+\begin{align*}
+\frac{z^{n+1}_m - z^n_m}{\Delta t} +
+r(m\Delta x)\frac{z^n_m - z^n_{m-1}}{\Delta x} -
+rz^n_m = 0
+\end{align*}
+
+Re-arranging
+
+\begin{align*}
+\frac{z^{n+1}_m - z^n_m}{\Delta t} +
+r (m-1) z^n_m -
+r m z^n_{m-1} = 0
+\end{align*}
+
+We can write this in Haskell as follows (again remembering we are
+stepping backwards in time).
+
+\begin{code}
+uBoundaryUpdater :: Source a Double => Array a DIM1 Double -> Double
+uBoundaryUpdater arr = x + deltaT * r * (a - b)
+  where
+    Z :. m = extent arr
+    x = arr!(Z :. m - 1)
+    y = arr!(Z :. m - 2)
+    a = x * fromIntegral (m-1)
+    b = y * fromIntegral m
 \end{code}
 
 \begin{code}

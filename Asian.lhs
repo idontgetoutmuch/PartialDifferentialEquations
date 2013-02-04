@@ -224,11 +224,41 @@ interface grid = traverse grid id (\_ sh -> f sh)
 \end{code}
 
 But now we are stuck. What are the boundary conditions for each of the
-pricers after we have done our interfacing?
+pricers after we have done our interfacing? We follow many
+practioners\cite{Windcliff03analysisof,2012arXiv1208.5168I} and assume
+that the underlying is linear in this area. Thus in the Black-Scholes
+equation
 
 $$
-\frac{\partial V}{\partial t} + \half \sigma^2 S^2 \frac{\partial^2 V}{\partial S^2} + r S\frac{\partial V}{\partial S} - rV = 0
+\frac{\partial z}{\partial t} + \half \sigma^2 x^2 \frac{\partial^2 z}{\partial x^2} + r x\frac{\partial z}{\partial x} - rz = 0
 $$
+
+we set the second derivative to $0$. Thus we can use a forward
+method at the boundary to solve the equation below.
+
+$$
+\frac{\partial z}{\partial t} + r x\frac{\partial z}{\partial x} - rz = 0
+$$
+
+When $x=0$, we have a simpler situation.
+
+$$
+\frac{\partial z(0,t)}{\partial t} - rz = 0
+$$
+
+\begin{code}
+uBoundaryUpdater :: Source a Double => Array a DIM1 Double -> Double
+uBoundaryUpdater a = undefined
+  where
+    Z :. m = extent a
+    x = a!(Z :. m - 1)
+    y = a!(Z :. m - 2)
+
+lBoundaryUpdater :: Source a Double => Array a DIM1 Double -> Double
+lBoundaryUpdater a = x - deltaT * r * x
+  where
+    x = a!(Z :. (0 :: Int))
+\end{code}
 
 \begin{code}
 pickAtStrike :: Monad m => Int -> Array U DIM2 Double -> m (Array U DIM1 Double)

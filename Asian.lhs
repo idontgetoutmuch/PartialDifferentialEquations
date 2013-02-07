@@ -88,7 +88,7 @@ the start time which gives us the price of the option for any given
 $x$ on our grid.
 
 \begin{code}
-{-# LANGUAGE FlexibleContexts, TypeOperators #-}
+{-# LANGUAGE FlexibleContexts, TypeOperators, NoMonomorphismRestriction #-}
 
 {-# OPTIONS_GHC -Wall -fno-warn-name-shadowing -fno-warn-type-defaults #-}
 
@@ -98,6 +98,8 @@ import Control.Monad
 import AsianDiagram
 import Diagrams.Prelude((===))
 import Diagrams.Backend.Cairo.CmdLine
+import Text.Printf
+import Data.List
 
 \end{code}
 
@@ -127,12 +129,17 @@ $\lim_{x \to \infty}z(x,t)$ as we will want to use our pricer not just
 for a vanilla call option.
 
 \begin{code}
-singleUpdater :: Double -> Double -> Array D DIM1 Double -> Array D DIM1 Double
-singleUpdater lb ub a = traverse a id f
+type BoundaryCondition = Array D DIM1 Double -> Double
+
+singleUpdater :: BoundaryCondition ->
+                  BoundaryCondition ->
+                  Array D DIM1 Double ->
+                  Array D DIM1 Double
+singleUpdater lb ub arr = traverse arr id f
   where
-    Z :. m = extent a
-    f _get (Z :. ix) | ix == 0   = lb
-    f _get (Z :. ix) | ix == m-1 = ub
+    Z :. m = extent arr
+    f _get (Z :. ix) | ix == 0   = lb arr
+    f _get (Z :. ix) | ix == m-1 = ub arr
     f  get (Z :. ix)             = a * get (Z :. ix-1) +
                                    b * get (Z :. ix) +
                                    c * get (Z :. ix+1)
@@ -147,17 +154,17 @@ multiple points in space.
 
 \begin{code}
 multiUpdater :: Source r Double =>
-                Array U DIM1 (Double, Double) ->
+                BoundaryCondition ->
+                BoundaryCondition ->
                 Array r DIM2 Double ->
                 Array D DIM2 Double
-multiUpdater lubs a = fromFunction (extent a) f
+multiUpdater lb ub arr = fromFunction (extent arr) f
      where
        f :: DIM2 -> Double
        f (Z :. ix :. jx) = (singleUpdater lb ub x)!(Z :. ix)
          where
-           (lb, ub) = lubs!(Z :. jx)
            x :: Array D DIM1 Double
-           x = slice a (Any :. jx)
+           x = slice arr (Any :. jx)
 \end{code}
 
 We define the boundary condition at the maturity date of our Asian
@@ -186,19 +193,21 @@ option, we only step back as far as the last Asian time.
 asianTimes :: [Int]
 asianTimes = Prelude.map (\x -> floor $ x*(fromIntegral n)/t) [2.7,2.8,2.9]
 
-testMulti :: Int -> Array U DIM1 (Double, Double) ->
-             Array U DIM2 Double ->
-             IO (Array U DIM2 Double)
-testMulti n lubs = updaterM
+testMulti :: Int ->
+              BoundaryCondition ->
+              BoundaryCondition ->
+              Array U DIM2 Double ->
+              IO (Array U DIM2 Double)
+testMulti n lb ub = updaterM
   where
     updaterM :: Monad m => Array U DIM2 Double -> m (Array U DIM2 Double)
-    updaterM = foldr (>=>) return (replicate n (computeP . multiUpdater lubs))
+    updaterM = foldr (>=>) return (replicate n (computeP . multiUpdater lb ub))
 
 justBefore3 :: IO (Array U DIM2 Double)
-justBefore3 = testMulti (n - (asianTimes!!2) -1) asianBCs priceAtTAsian
+justBefore3 = testMulti (n - (asianTimes!!2) -1) lBoundaryUpdater uBoundaryUpdater priceAtTAsian
 
 justBefore2 :: IO (Array U DIM2 Double)
-justBefore2 = testMulti undefined undefined undefined
+justBefore2 = testMulti undefined undefined undefined undefined
 \end{code}
 
 Now we can do our interfacing.
@@ -256,10 +265,10 @@ Which is easily represented in Haskell (rembering we are stepping
 backwards in time).
 
 \begin{code}
-lBoundaryUpdater :: Source a Double => Array a DIM1 Double -> Double
-lBoundaryUpdater a = x - deltaT * r * x
+lBoundaryUpdater :: BoundaryCondition
+lBoundaryUpdater arr = x - deltaT * r * x
   where
-    x = a!(Z :. (0 :: Int))
+    x = arr!(Z :. (0 :: Int))
 \end{code}
 
 The corresponding difference equation for the upper boundary is:
@@ -282,7 +291,7 @@ We can write this in Haskell as follows (again remembering we are
 stepping backwards in time).
 
 \begin{code}
-uBoundaryUpdater :: Source a Double => Array a DIM1 Double -> Double
+uBoundaryUpdater :: BoundaryCondition
 uBoundaryUpdater arr = x + deltaT * r * (a - b)
   where
     Z :. m = extent arr
@@ -296,34 +305,52 @@ uBoundaryUpdater arr = x + deltaT * r * (a - b)
 pickAtStrike :: Monad m => Int -> Array U DIM2 Double -> m (Array U DIM1 Double)
 pickAtStrike n t = computeP $ slice t (Any :. n :. All)
 
+showD :: Double -> String
+showD = printf "%.2f"
+
+showArrD1 :: Array U DIM1 Double -> String
+showArrD1 = intercalate ", " . Prelude.map showD . toList
+
+
 main :: IO ()
 main = do -- t <- testMulti n priceAtTAsian
           -- vStrikes <- pickAtStrike 27 t
           -- putStrLn $ show vStrikes
           let (Z :. _i :. j) = extent priceAtTAsian
 
+          putStrLn "\nAsianing times"
+          putStrLn $ show asianTimes
+
+          putStrLn "\nInitial pricers"
           let aSlicesD'' = Prelude.map (\m -> slice priceAtTAsian (Any :. m )) [0..j-1]
 
           aSlices'' <- mapM computeP aSlicesD'' :: IO [Array U DIM1 Double]
-          mapM_ (putStrLn . show . toList) aSlices''
+          mapM_ (putStrLn . showArrD1) aSlices''
 
-          putStrLn $ show asianTimes
-          grid <- justBefore3
-          let aSlicesD :: [Array D DIM1 Double]
-              aSlicesD = Prelude.map (\m -> slice grid (Any :. m)) [0..j-1]
-          aSlices <- mapM computeP aSlicesD :: IO [Array U DIM1 Double]
-          mapM_ (putStrLn . show . toList) aSlices
+          grida <- justBefore3
+          let aSlicesDa :: [Array D DIM1 Double]
+              aSlicesDa = Prelude.map (\m -> slice grida (Any :. m)) [0..j-1]
+          aSlicesa <- mapM computeP aSlicesDa :: IO [Array U DIM1 Double]
 
-          grid' <- computeP $ interface grid :: IO (Array U DIM2 Double)
+          putStrLn "\nJust before 3"
+          putStrLn $ show $ Prelude.map extent aSlicesa
+          mapM_ (putStrLn . showArrD1) aSlicesa
 
-          defaultMain $     drawValues grid
+          grid' <- computeP $ interface grida :: IO (Array U DIM2 Double)
+
+          defaultMain $     drawValues grida
                         === drawValues grid'
 
           let aSlicesD' :: [Array D DIM1 Double]
               aSlicesD' = Prelude.map (\m -> slice grid' (Any :. m)) [0..j-1]
           aSlices' <- mapM computeP aSlicesD' :: IO [Array U DIM1 Double]
-          mapM_ (putStrLn . show . toList) aSlices'
-          putStrLn $ show $ Prelude.zipWith ((!!)) (Prelude.map toList aSlices') [0,1..p]
+
+          putStrLn "\nJust after 3"
+          putStrLn $ show $ Prelude.map extent aSlices'
+          mapM_ (putStrLn . showArrD1) aSlices'
+
+          putStrLn "\nDiagonal"
+          putStrLn $ intercalate ", " $ Prelude.map showD $ Prelude.zipWith ((!!)) (Prelude.map toList aSlices') [0,1..p]
 
 \end{code}
 

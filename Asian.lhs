@@ -95,7 +95,6 @@ Our usual imports and options.
 {-# OPTIONS_GHC -Wall -fno-warn-name-shadowing -fno-warn-type-defaults #-}
 
 import Data.Array.Repa as Repa hiding ((++))
-import Data.Array.Repa.Repr.Unboxed as RepaU
 import Control.Monad
 import AsianDiagram
 import Diagrams.Prelude((===))
@@ -112,7 +111,7 @@ before and after interfacing.
 \begin{code}
 r, sigma, k, t, xMax, aMax, deltaX, deltaT, deltaA:: Double
 m, n, p :: Int
-r = 0.05
+r = 0.0 -- 0.05
 sigma = 0.2
 k = 50.0
 t = 3.0
@@ -122,7 +121,7 @@ xMax = 150
 deltaX = xMax / (fromIntegral m)
 aMax = 150
 deltaA = aMax / (fromIntegral p)
-n = 800
+n = 100 -- 800
 deltaT = t / (fromIntegral n)
 \end{code}
 
@@ -189,7 +188,7 @@ option, we only step back as far as the last Asian time.
 
 \begin{code}
 asianTimes :: [Int]
-asianTimes = Prelude.map (\x -> floor $ x*(fromIntegral n)/t) [2.7,2.8,2.9]
+asianTimes = Prelude.map (\x -> floor $ x*(fromIntegral n)/t) [1.5,2.0,2.5] -- [2.7,2.8,2.9]
 
 stepMulti :: Int ->
               BoundaryCondition ->
@@ -274,8 +273,11 @@ uBoundaryUpdater arr = x + deltaT * r * (a - b)
 Now we can step backwards in time to just before the last observation.
 
 \begin{code}
+stepsTo3 :: Int
+stepsTo3 = n - (asianTimes!!2) - 1
+
 justBefore3 :: IO (Array U DIM2 Double)
-justBefore3 = stepMulti (n - (asianTimes!!2) -1) lBoundaryUpdater uBoundaryUpdater priceAtTAsian
+justBefore3 = stepMulti stepsTo3 lBoundaryUpdater uBoundaryUpdater priceAtTAsian
 \end{code}
 
 Now we can do our interfacing.
@@ -300,10 +302,53 @@ interface grid = traverse grid id (\_ sh -> f sh)
         inter   = vLower + prptn * (vUpper - vLower)
 \end{code}
 
+And then step backwards with the new final boundary condition.
 
 \begin{code}
+stepsTo2 :: Int
+stepsTo2 = (asianTimes!!2) - (asianTimes!!1)
+
 justBefore2 :: IO (Array U DIM2 Double)
-justBefore2 = stepMulti undefined undefined undefined undefined
+justBefore2 = do grid <- justBefore3
+                 grid' <- computeP $ interface grid :: IO (Array U DIM2 Double)
+                 stepMulti stepsTo2 lBoundaryUpdater uBoundaryUpdater grid'
+\end{code}
+
+Again we step backwards in time with a new final boundary condition.
+
+\begin{code}
+stepsTo1 :: Int
+stepsTo1 = (asianTimes!!1) - (asianTimes!!0)
+
+justBefore1 :: IO (Array U DIM2 Double)
+justBefore1 = do grid <- justBefore2
+                 grid' <- computeP $ interface grid :: IO (Array U DIM2 Double)
+                 stepMulti stepsTo1 lBoundaryUpdater uBoundaryUpdater grid'
+\end{code}
+
+Finally we step all the way back to the time at which we wish to know
+the price. Here the interface condition is just $x=a$ so we can take
+the diagonal of our grid and diffuse backwards using a single pricer.
+
+\begin{code}
+diagonal :: Source a Double =>
+            Array a DIM2 Double ->
+            Array D DIM2 Double
+diagonal arr = traverse arr g f
+  where
+    f :: (DIM2 -> Double) -> DIM2 -> Double
+    f get (Z :. ix :. _) = get (Z :. ix :. ix)
+
+    g :: DIM2 -> DIM2
+    g (Z :. ix :. iy) = Z :. (min ix iy) :. (1 :: Int)
+
+stepsTo0 :: Int
+stepsTo0 = asianTimes!!1
+
+priceAt0Asian :: IO (Array U DIM2 Double)
+priceAt0Asian = do grid  <- justBefore1
+                   grid' <- computeP $ diagonal $ interface grid
+                   stepMulti stepsTo0 lBoundaryUpdater uBoundaryUpdater grid'
 \end{code}
 
 \begin{code}
@@ -316,46 +361,42 @@ showD = printf "%.2f"
 showArrD1 :: Array U DIM1 Double -> String
 showArrD1 = intercalate ", " . Prelude.map showD . toList
 
+showSlices :: String -> Array U DIM2 Double -> IO ()
+showSlices message prices = do
+  putStrLn ('\n' : message)
+
+  let (Z :. _i :. j) = extent prices
+      slicesD = Prelude.map (\m -> slice prices (Any :. m)) [0..j-1]
+
+  slices <- mapM computeP slicesD :: IO [Array U DIM1 Double]
+  mapM_ (putStrLn . showArrD1) slices
 
 main :: IO ()
-main = do -- t <- stepMulti n priceAtTAsian
-          -- vStrikes <- pickAtStrike 27 t
-          -- putStrLn $ show vStrikes
-          let (Z :. _i :. j) = extent priceAtTAsian
-
-          putStrLn "\nAsianing times"
+main = do putStrLn "\nAsianing times"
           putStrLn $ show asianTimes
 
-          putStrLn "\nInitial pricers"
-          let aSlicesD'' = Prelude.map (\m -> slice priceAtTAsian (Any :. m )) [0..j-1]
+          showSlices "Initial pricers" priceAtTAsian
 
-          aSlices'' <- mapM computeP aSlicesD'' :: IO [Array U DIM1 Double]
-          mapM_ (putStrLn . showArrD1) aSlices''
+          grid3b <- justBefore3
+          showSlices "Just before 3" grid3b
+          grid3a <- computeP $ interface grid3b :: IO (Array U DIM2 Double)
+          showSlices "Just after 3" grid3a
 
-          grida <- justBefore3
-          let aSlicesDa :: [Array D DIM1 Double]
-              aSlicesDa = Prelude.map (\m -> slice grida (Any :. m)) [0..j-1]
-          aSlicesa <- mapM computeP aSlicesDa :: IO [Array U DIM1 Double]
+          grid2b <- justBefore2
+          showSlices "Just before 2" grid2b
+          grid2a <- computeP $ interface grid2b :: IO (Array U DIM2 Double)
+          showSlices "Just after 2" grid2a
 
-          putStrLn "\nJust before 3"
-          putStrLn $ show $ Prelude.map extent aSlicesa
-          mapM_ (putStrLn . showArrD1) aSlicesa
+          grid1b <- justBefore1
+          showSlices "Just before 1" grid1b
+          grid1a <- computeP $ interface grid1b :: IO (Array U DIM2 Double)
+          showSlices "Just after 1" grid1a
 
-          grid' <- computeP $ interface grida :: IO (Array U DIM2 Double)
+          grid <- priceAt0Asian
+          showSlices "Final pricer" grid
 
-          defaultMain $     drawValues grida
-                        === drawValues grid'
-
-          let aSlicesD' :: [Array D DIM1 Double]
-              aSlicesD' = Prelude.map (\m -> slice grid' (Any :. m)) [0..j-1]
-          aSlices' <- mapM computeP aSlicesD' :: IO [Array U DIM1 Double]
-
-          putStrLn "\nJust after 3"
-          putStrLn $ show $ Prelude.map extent aSlices'
-          mapM_ (putStrLn . showArrD1) aSlices'
-
-          putStrLn "\nDiagonal"
-          putStrLn $ intercalate ", " $ Prelude.map showD $ Prelude.zipWith ((!!)) (Prelude.map toList aSlices') [0,1..p]
+          -- defaultMain $     drawValues grida
+          --               === drawValues grid'
 
 \end{code}
 

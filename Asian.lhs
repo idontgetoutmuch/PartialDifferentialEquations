@@ -283,15 +283,15 @@ justBefore3 = stepMulti stepsTo3 lBoundaryUpdater uBoundaryUpdater priceAtTAsian
 Now we can do our interfacing.
 
 \begin{code}
-interface :: Array U DIM2 Double -> Array D DIM2 Double
-interface grid = traverse grid id (\_ sh -> f sh)
+interface :: Int -> Array U DIM2 Double -> Array D DIM2 Double
+interface n grid = traverse grid id (\_ sh -> f sh)
   where
     (Z :. _iMax :. jMax) = extent grid
     f (Z :. i :. j) = inter
       where
         x       = deltaX * (fromIntegral i)
         aPlus   = deltaA * (fromIntegral j)
-        aMinus  = aPlus + (x - aPlus) / (fromIntegral $ length asianTimes)
+        aMinus  = aPlus + (x - aPlus) / (fromIntegral n)
         jLower  = if k > jMax - 1 then jMax - 1 else k
                     where k = floor $ aMinus / deltaA
         jUpper  = if (jLower == jMax - 1) then jMax - 1 else jLower + 1
@@ -310,7 +310,7 @@ stepsTo2 = (asianTimes!!2) - (asianTimes!!1)
 
 justBefore2 :: IO (Array U DIM2 Double)
 justBefore2 = do grid <- justBefore3
-                 grid' <- computeP $ interface grid :: IO (Array U DIM2 Double)
+                 grid' <- computeP $ interface 3 grid :: IO (Array U DIM2 Double)
                  stepMulti stepsTo2 lBoundaryUpdater uBoundaryUpdater grid'
 \end{code}
 
@@ -322,7 +322,7 @@ stepsTo1 = (asianTimes!!1) - (asianTimes!!0)
 
 justBefore1 :: IO (Array U DIM2 Double)
 justBefore1 = do grid <- justBefore2
-                 grid' <- computeP $ interface grid :: IO (Array U DIM2 Double)
+                 grid' <- computeP $ interface 2 grid :: IO (Array U DIM2 Double)
                  stepMulti stepsTo1 lBoundaryUpdater uBoundaryUpdater grid'
 \end{code}
 
@@ -347,7 +347,7 @@ stepsTo0 = asianTimes!!1
 
 priceAt0Asian :: IO (Array U DIM2 Double)
 priceAt0Asian = do grid  <- justBefore1
-                   grid' <- computeP $ diagonal $ interface grid
+                   grid' <- computeP $ diagonal $ interface 1 grid
                    stepMulti stepsTo0 lBoundaryUpdater uBoundaryUpdater grid'
 \end{code}
 
@@ -371,6 +371,13 @@ showSlices message prices = do
   slices <- mapM computeP slicesD :: IO [Array U DIM1 Double]
   mapM_ (putStrLn . showArrD1) slices
 
+showBeforeAndAfter :: Int -> Array U DIM2 Double -> IO (Array U DIM2 Double)
+showBeforeAndAfter n gridb = do
+  showSlices ("Just before " ++ show n) gridb
+  grida <- computeP $ interface n gridb :: IO (Array U DIM2 Double)
+  showSlices ("Just after " ++ show n) grida
+  return grida
+
 main :: IO ()
 main = do putStrLn "\nAsianing times"
           putStrLn $ show asianTimes
@@ -378,25 +385,23 @@ main = do putStrLn "\nAsianing times"
           showSlices "Initial pricers" priceAtTAsian
 
           grid3b <- justBefore3
-          showSlices "Just before 3" grid3b
-          grid3a <- computeP $ interface grid3b :: IO (Array U DIM2 Double)
-          showSlices "Just after 3" grid3a
+          grid3a <- showBeforeAndAfter 3 grid3b
 
           grid2b <- justBefore2
-          showSlices "Just before 2" grid2b
-          grid2a <- computeP $ interface grid2b :: IO (Array U DIM2 Double)
-          showSlices "Just after 2" grid2a
+          grid2a <-showBeforeAndAfter 2 grid2b
 
           grid1b <- justBefore1
-          showSlices "Just before 1" grid1b
-          grid1a <- computeP $ interface grid1b :: IO (Array U DIM2 Double)
-          showSlices "Just after 1" grid1a
+          grid1a <- showBeforeAndAfter 1 grid1b
 
           grid <- priceAt0Asian
           showSlices "Final pricer" grid
 
-          -- defaultMain $     drawValues grida
-          --               === drawValues grid'
+          defaultMain $     drawValues grid3b
+                        === drawValues grid3a
+                        === drawValues grid2b
+                        === drawValues grid2a
+                        === drawValues grid1b
+                        === drawValues grid1a
 
 \end{code}
 

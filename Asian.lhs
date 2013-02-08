@@ -87,6 +87,8 @@ sampling time. At this point, $x = a$ so we diffuse one pricer back to
 the start time which gives us the price of the option for any given
 $x$ on our grid.
 
+Our usual imports and options.
+
 \begin{code}
 {-# LANGUAGE FlexibleContexts, TypeOperators, NoMonomorphismRestriction #-}
 
@@ -103,12 +105,14 @@ import Data.List
 
 \end{code}
 
-First some constants for the payoff and the pricer.
+First some constants for the payoff and the pricer. We make the space
+grid deliberately coarse so we can draw diagrams showing the grid
+before and after interfacing.
 
 \begin{code}
 r, sigma, k, t, xMax, aMax, deltaX, deltaT, deltaA:: Double
 m, n, p :: Int
-r = 0.00 -- 0.05
+r = 0.05
 sigma = 0.2
 k = 50.0
 t = 3.0
@@ -178,12 +182,6 @@ priceAtTAsian = fromListUnboxed (Z :. m+1 :. p+1)
                 | _j <- [0..m],
                    l <- [0..p]
                 ]
-
-asianBCs :: Array U DIM1 (Double, Double)
-asianBCs = RepaU.zip lbs ubs
-             where
-               lbs = computeS $ slice priceAtTAsian (Any :. (0 ::Int) :. All)
-               ubs = computeS $ slice priceAtTAsian (Any :. m :. All)
 \end{code}
 
 Now instead of stepping all the way back to the initial date of the
@@ -193,43 +191,15 @@ option, we only step back as far as the last Asian time.
 asianTimes :: [Int]
 asianTimes = Prelude.map (\x -> floor $ x*(fromIntegral n)/t) [2.7,2.8,2.9]
 
-testMulti :: Int ->
+stepMulti :: Int ->
               BoundaryCondition ->
               BoundaryCondition ->
               Array U DIM2 Double ->
               IO (Array U DIM2 Double)
-testMulti n lb ub = updaterM
+stepMulti n lb ub = updaterM
   where
     updaterM :: Monad m => Array U DIM2 Double -> m (Array U DIM2 Double)
     updaterM = foldr (>=>) return (replicate n (computeP . multiUpdater lb ub))
-
-justBefore3 :: IO (Array U DIM2 Double)
-justBefore3 = testMulti (n - (asianTimes!!2) -1) lBoundaryUpdater uBoundaryUpdater priceAtTAsian
-
-justBefore2 :: IO (Array U DIM2 Double)
-justBefore2 = testMulti undefined undefined undefined undefined
-\end{code}
-
-Now we can do our interfacing.
-
-\begin{code}
-interface :: Array U DIM2 Double -> Array D DIM2 Double
-interface grid = traverse grid id (\_ sh -> f sh)
-  where
-    (Z :. _iMax :. jMax) = extent grid
-    f (Z :. i :. j) = inter
-      where
-        x       = deltaX * (fromIntegral i)
-        aPlus   = deltaA * (fromIntegral j)
-        aMinus  = aPlus + (x - aPlus) / (fromIntegral $ length asianTimes)
-        jLower  = if k > jMax - 1 then jMax - 1 else k
-                    where k = floor $ aMinus / deltaA
-        jUpper  = if (jLower == jMax - 1) then jMax - 1 else jLower + 1
-        aLower  = deltaA * (fromIntegral jLower)
-        prptn   = (aMinus - aLower) / deltaA
-        vLower  = grid!(Z :. i :. jLower)
-        vUpper  = grid!(Z :. i :. jUpper)
-        inter   = vLower + prptn * (vUpper - vLower)
 \end{code}
 
 But now we are stuck. What are the boundary conditions for each of the
@@ -301,6 +271,41 @@ uBoundaryUpdater arr = x + deltaT * r * (a - b)
     b = y * fromIntegral m
 \end{code}
 
+Now we can step backwards in time to just before the last observation.
+
+\begin{code}
+justBefore3 :: IO (Array U DIM2 Double)
+justBefore3 = stepMulti (n - (asianTimes!!2) -1) lBoundaryUpdater uBoundaryUpdater priceAtTAsian
+\end{code}
+
+Now we can do our interfacing.
+
+\begin{code}
+interface :: Array U DIM2 Double -> Array D DIM2 Double
+interface grid = traverse grid id (\_ sh -> f sh)
+  where
+    (Z :. _iMax :. jMax) = extent grid
+    f (Z :. i :. j) = inter
+      where
+        x       = deltaX * (fromIntegral i)
+        aPlus   = deltaA * (fromIntegral j)
+        aMinus  = aPlus + (x - aPlus) / (fromIntegral $ length asianTimes)
+        jLower  = if k > jMax - 1 then jMax - 1 else k
+                    where k = floor $ aMinus / deltaA
+        jUpper  = if (jLower == jMax - 1) then jMax - 1 else jLower + 1
+        aLower  = deltaA * (fromIntegral jLower)
+        prptn   = (aMinus - aLower) / deltaA
+        vLower  = grid!(Z :. i :. jLower)
+        vUpper  = grid!(Z :. i :. jUpper)
+        inter   = vLower + prptn * (vUpper - vLower)
+\end{code}
+
+
+\begin{code}
+justBefore2 :: IO (Array U DIM2 Double)
+justBefore2 = stepMulti undefined undefined undefined undefined
+\end{code}
+
 \begin{code}
 pickAtStrike :: Monad m => Int -> Array U DIM2 Double -> m (Array U DIM1 Double)
 pickAtStrike n t = computeP $ slice t (Any :. n :. All)
@@ -313,7 +318,7 @@ showArrD1 = intercalate ", " . Prelude.map showD . toList
 
 
 main :: IO ()
-main = do -- t <- testMulti n priceAtTAsian
+main = do -- t <- stepMulti n priceAtTAsian
           -- vStrikes <- pickAtStrike 27 t
           -- putStrLn $ show vStrikes
           let (Z :. _i :. j) = extent priceAtTAsian

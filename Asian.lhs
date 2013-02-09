@@ -94,7 +94,7 @@ Our usual imports and options.
 
 {-# OPTIONS_GHC -Wall -fno-warn-name-shadowing -fno-warn-type-defaults #-}
 
-import Data.Array.Repa as Repa hiding ((++))
+import Data.Array.Repa as Repa hiding ((++), map)
 import Control.Monad
 import AsianDiagram
 import Diagrams.Prelude((===))
@@ -123,6 +123,17 @@ aMax = 150
 deltaA = aMax / (fromIntegral p)
 n = 100 -- 800
 deltaT = t / (fromIntegral n)
+\end{code}
+
+We take the times at which do our Asian observations and calculate the
+number of steps between each observation including the initial and
+terminal times.
+
+\begin{code}
+asianTimes :: [Int]
+asianTimes = map (\x -> floor $ x*(fromIntegral n)/t) [1.5,2.0,2.5] -- [2.7,2.8,2.9]
+numSteps :: [Int]
+numSteps = snd $ mapAccumL (\s x -> (x, x - s)) 0 (asianTimes ++ [n])
 \end{code}
 
 As before we can define a single pricer that updates the grid over one
@@ -183,13 +194,7 @@ priceAtTAsian = fromListUnboxed (Z :. m+1 :. p+1)
                 ]
 \end{code}
 
-Now instead of stepping all the way back to the initial date of the
-option, we only step back as far as the last Asian time.
-
 \begin{code}
-asianTimes :: [Int]
-asianTimes = Prelude.map (\x -> floor $ x*(fromIntegral n)/t) [1.5,2.0,2.5] -- [2.7,2.8,2.9]
-
 stepMulti :: Int ->
               BoundaryCondition ->
               BoundaryCondition ->
@@ -270,14 +275,12 @@ uBoundaryUpdater arr = x + deltaT * r * (a - b)
     b = y * fromIntegral m
 \end{code}
 
-Now we can step backwards in time to just before the last observation.
+Now instead of stepping all the way back to the initial time of the
+option, we only step back to just before the last observation.
 
 \begin{code}
-stepsTo3 :: Int
-stepsTo3 = n - (asianTimes!!2) - 1
-
 justBefore3 :: IO (Array U DIM2 Double)
-justBefore3 = stepMulti stepsTo3 lBoundaryUpdater uBoundaryUpdater priceAtTAsian
+justBefore3 = stepMulti (numSteps!!3) lBoundaryUpdater uBoundaryUpdater priceAtTAsian
 \end{code}
 
 Now we can do our interfacing.
@@ -305,25 +308,19 @@ interface n grid = traverse grid id (\_ sh -> f sh)
 And then step backwards with the new final boundary condition.
 
 \begin{code}
-stepsTo2 :: Int
-stepsTo2 = (asianTimes!!2) - (asianTimes!!1)
-
 justBefore2 :: IO (Array U DIM2 Double)
 justBefore2 = do grid <- justBefore3
                  grid' <- computeP $ interface 3 grid :: IO (Array U DIM2 Double)
-                 stepMulti stepsTo2 lBoundaryUpdater uBoundaryUpdater grid'
+                 stepMulti (numSteps!!2) lBoundaryUpdater uBoundaryUpdater grid'
 \end{code}
 
 Again we step backwards in time with a new final boundary condition.
 
 \begin{code}
-stepsTo1 :: Int
-stepsTo1 = (asianTimes!!1) - (asianTimes!!0)
-
 justBefore1 :: IO (Array U DIM2 Double)
 justBefore1 = do grid <- justBefore2
                  grid' <- computeP $ interface 2 grid :: IO (Array U DIM2 Double)
-                 stepMulti stepsTo1 lBoundaryUpdater uBoundaryUpdater grid'
+                 stepMulti (numSteps!!1) lBoundaryUpdater uBoundaryUpdater grid'
 \end{code}
 
 Finally we step all the way back to the time at which we wish to know
@@ -342,13 +339,10 @@ diagonal arr = traverse arr g f
     g :: DIM2 -> DIM2
     g (Z :. ix :. iy) = Z :. (min ix iy) :. (1 :: Int)
 
-stepsTo0 :: Int
-stepsTo0 = asianTimes!!1
-
 priceAt0Asian :: IO (Array U DIM2 Double)
 priceAt0Asian = do grid  <- justBefore1
                    grid' <- computeP $ diagonal $ interface 1 grid
-                   stepMulti stepsTo0 lBoundaryUpdater uBoundaryUpdater grid'
+                   stepMulti (numSteps!!0) lBoundaryUpdater uBoundaryUpdater grid'
 \end{code}
 
 \begin{code}
@@ -359,14 +353,14 @@ showD :: Double -> String
 showD = printf "%.2f"
 
 showArrD1 :: Array U DIM1 Double -> String
-showArrD1 = intercalate ", " . Prelude.map showD . toList
+showArrD1 = intercalate ", " . map showD . toList
 
 showSlices :: String -> Array U DIM2 Double -> IO ()
 showSlices message prices = do
   putStrLn ('\n' : message)
 
   let (Z :. _i :. j) = extent prices
-      slicesD = Prelude.map (\m -> slice prices (Any :. m)) [0..j-1]
+      slicesD = map (\m -> slice prices (Any :. m)) [0..j-1]
 
   slices <- mapM computeP slicesD :: IO [Array U DIM1 Double]
   mapM_ (putStrLn . showArrD1) slices

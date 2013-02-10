@@ -92,7 +92,7 @@ before and after interfacing.
 
 > r, sigma, k, t, xMax, aMax, deltaX, deltaT, deltaA:: Double
 > m, n, p :: Int
-> r = 0.0 -- 0.05
+> r = 0.05
 > sigma = 0.2
 > k = 50.0
 > t = 3.0
@@ -102,7 +102,7 @@ before and after interfacing.
 > deltaX = xMax / (fromIntegral m)
 > aMax = 150
 > deltaA = aMax / (fromIntegral p)
-> n = 100 -- 800
+> n = 100
 > deltaT = t / (fromIntegral n)
 
 We take the times at which do our Asian observations and calculate the
@@ -110,9 +110,11 @@ number of steps between each observation including the initial and
 terminal times.
 
 > asianTimes :: [Int]
-> asianTimes = map (\x -> floor $ x*(fromIntegral n)/t) [1.5,2.0,2.5] -- [2.7,2.8,2.9]
+> asianTimes = map (\x -> floor $ x*(fromIntegral n)/t) [1.5,2.0,2.5]
+>
 > numSteps :: [Int]
-> numSteps = snd $ mapAccumL (\s x -> (x, x - s)) 0 (asianTimes ++ [n])
+> numSteps = snd $ mapAccumL (\s x -> (x, x - s)) 0 times
+>              where times = asianTimes ++ [n]
 
 As before we can define a single pricer that updates the grid over one
 time step and at multiple points in space using the Explicit Euler
@@ -135,9 +137,10 @@ for a vanilla call option.
 >                                    b * get (Z :. ix) +
 >                                    c * get (Z :. ix+1)
 >       where
->         a = deltaT * (sigma^2 * (fromIntegral ix)^2 - r * (fromIntegral ix)) / 2
->         b = 1 - deltaT * (r  + sigma^2 * (fromIntegral ix)^2)
->         c = deltaT * (sigma^2 * (fromIntegral ix)^2 + r * (fromIntegral ix)) / 2
+>         a = deltaT * (sigma^2 * x^2 - r * x) / 2
+>         b = 1 - deltaT * (r  + sigma^2 * x^2)
+>         c = deltaT * (sigma^2 * x^2 + r * x) / 2
+>         x = fromIntegral ix
 
 Again we can extend this to update many pricers on one time step and
 multiple points in space.
@@ -175,8 +178,11 @@ With this we can step backwards in time for any number of timesteps.
 >               IO (Array U DIM2 Double)
 > stepMulti n lb ub = updaterM
 >   where
->     updaterM :: Monad m => Array U DIM2 Double -> m (Array U DIM2 Double)
->     updaterM = foldr (>=>) return (replicate n (computeP . multiUpdater lb ub))
+>     updaterM :: Monad m => Array U DIM2 Double ->
+>                            m (Array U DIM2 Double)
+>     updaterM = foldr (>=>) return updaters
+>       where
+>         updaters = replicate n (computeP . multiUpdater lb ub)
 
 Boundary Conditions
 ===================
@@ -238,23 +244,18 @@ We can write this in Haskell as follows (again remembering we are
 stepping backwards in time).
 
 > uBoundaryUpdater :: BoundaryCondition
-> uBoundaryUpdater arr = x + deltaT * r * (a - b)
+> uBoundaryUpdater arr = x + deltaT * r * (b - a)
 >   where
 >     Z :. m = extent arr
 >     x = arr!(Z :. m - 1)
 >     y = arr!(Z :. m - 2)
->     a = x * fromIntegral (m-1)
+>     a = x * fromIntegral (m - 1)
 >     b = y * fromIntegral m
-
-Now instead of stepping all the way back to the initial time of the
-option, we only step back to just before the last observation.
-
-> justBefore3 :: IO (Array U DIM2 Double)
-> justBefore3 = stepMulti (numSteps!!3) lBoundaryUpdater uBoundaryUpdater priceAtTAsian
 
 Now we can do our interfacing.
 
-> interface :: Int -> Array U DIM2 Double -> Array D DIM2 Double
+> interface :: Int -> Array U DIM2 Double ->
+>              Array D DIM2 Double
 > interface n grid = traverse grid id (\_ sh -> f sh)
 >   where
 >     (Z :. _iMax :. jMax) = extent grid
@@ -265,50 +266,21 @@ Now we can do our interfacing.
 >         aMinus  = aPlus + (x - aPlus) / (fromIntegral n)
 >         jLower  = if k > jMax - 1 then jMax - 1 else k
 >                     where k = floor $ aMinus / deltaA
->         jUpper  = if (jLower == jMax - 1) then jMax - 1 else jLower + 1
+>         jUpper  = if (jLower == jMax - 1)
+>                     then jMax - 1
+>                     else jLower + 1
 >         aLower  = deltaA * (fromIntegral jLower)
 >         prptn   = (aMinus - aLower) / deltaA
 >         vLower  = grid!(Z :. i :. jLower)
 >         vUpper  = grid!(Z :. i :. jUpper)
 >         inter   = vLower + prptn * (vUpper - vLower)
 
-And then step backwards with the new final boundary condition.
+Example
+======
 
-> justBefore2 :: IO (Array U DIM2 Double)
-> justBefore2 = do grid <- justBefore3
->                  grid' <- computeP $ interface 3 grid :: IO (Array U DIM2 Double)
->                  stepMulti (numSteps!!2) lBoundaryUpdater uBoundaryUpdater grid'
+Now we are in a position to give an example of pricing our option
+with a few helper functions
 
-Again we step backwards in time with a new final boundary condition.
-
-> justBefore1 :: IO (Array U DIM2 Double)
-> justBefore1 = do grid <- justBefore2
->                  grid' <- computeP $ interface 2 grid :: IO (Array U DIM2 Double)
->                  stepMulti (numSteps!!1) lBoundaryUpdater uBoundaryUpdater grid'
-
-Finally we step all the way back to the time at which we wish to know
-the price. Here the interface condition is just $x=a$ so we can take
-the diagonal of our grid and diffuse backwards using a single pricer.
-
-> diagonal :: Source a Double =>
->             Array a DIM2 Double ->
->             Array D DIM2 Double
-> diagonal arr = traverse arr g f
->   where
->     f :: (DIM2 -> Double) -> DIM2 -> Double
->     f get (Z :. ix :. _) = get (Z :. ix :. ix)
->
->     g :: DIM2 -> DIM2
->     g (Z :. ix :. iy) = Z :. (min ix iy) :. (1 :: Int)
->
-> priceAt0Asian :: IO (Array U DIM2 Double)
-> priceAt0Asian = do grid  <- justBefore1
->                    grid' <- computeP $ diagonal $ interface 1 grid
->                    stepMulti (numSteps!!0) lBoundaryUpdater uBoundaryUpdater grid'
->
-> pickAtStrike :: Monad m => Int -> Array U DIM2 Double -> m (Array U DIM1 Double)
-> pickAtStrike n t = computeP $ slice t (Any :. n :. All)
->
 > showD :: Double -> String
 > showD = printf "%.2f"
 >
@@ -322,39 +294,65 @@ the diagonal of our grid and diffuse backwards using a single pricer.
 >   let (Z :. _i :. j) = extent prices
 >       slicesD = map (\m -> slice prices (Any :. m)) [0..j-1]
 >
->   slices <- mapM computeP slicesD :: IO [Array U DIM1 Double]
+>   slices <- mapM computeP slicesD
 >   mapM_ (putStrLn . showArrD1) slices
 >
-> showBeforeAndAfter :: Int -> Array U DIM2 Double -> IO (Array U DIM2 Double)
-> showBeforeAndAfter n gridb = do
->   showSlices ("Just before " ++ show n) gridb
->   grida <- computeP $ interface n gridb :: IO (Array U DIM2 Double)
->   showSlices ("Just after " ++ show n) grida
->   return grida
+> diagonal :: Source a Double =>
+>             Array a DIM2 Double ->
+>             Array D DIM2 Double
+> diagonal arr = traverse arr g f
+>   where
+>     f :: (DIM2 -> Double) -> DIM2 -> Double
+>     f get (Z :. ix :. _) = get (Z :. ix :. ix)
+>
+>     g :: DIM2 -> DIM2
+>     g (Z :. ix :. iy) = Z :. (min ix iy) :. (1 :: Int)
 >
 > main :: IO ()
 > main = do putStrLn "\nAsianing times"
 >           putStrLn $ show asianTimes
 >
+>           let lb = lBoundaryUpdater
+>               ub = uBoundaryUpdater
+>
 >           showSlices "Initial pricers" priceAtTAsian
+
+Now instead of stepping all the way back to the initial time of the
+option, we only step back to just before the last observation.
+
+>           grid3b <- stepMulti (numSteps!!3) lb ub priceAtTAsian
+>           showSlices ("Just before 3") grid3b
 >
->           grid3b <- justBefore3
->           grid3a <- showBeforeAndAfter 3 grid3b
+>           grid3a <- computeP $ interface 3 grid3b
+>           showSlices ("Just after 3") grid3a
+
+And then step backwards with the new final boundary condition.
+
+>           grid2b <- stepMulti (numSteps!!2) lb ub grid3a
+>           showSlices ("Just before 2") grid2b
 >
->           grid2b <- justBefore2
->           grid2a <-showBeforeAndAfter 2 grid2b
->
->           grid1b <- justBefore1
->           grid1a <- showBeforeAndAfter 1 grid1b
->
->           grid <- priceAt0Asian
->           showSlices "Final pricer" grid
->
->           defaultMain $     drawValues grid3b
->                         === drawValues grid3a
->                         === drawValues grid2b
->                         === drawValues grid2a
->                         === drawValues grid1b
->                         === drawValues grid1a
->
+>           grid2a <- computeP $ interface 2 grid2b
+>           showSlices ("Just after 2") grid2a
+
+Again we step backwards in time with a new final boundary condition.
+
+>           grid1b <- stepMulti (numSteps!!1) lb ub grid2a
+>           showSlices ("Just before 1") grid1b
+
+Finally we step all the way back to the time at which we wish to know
+the price. Here the interface condition is just $x=a$ so we can take
+the diagonal of our grid and diffuse backwards using a single pricer.
+
+>           grid1a <- computeP $ diagonal grid1b
+>           showSlices ("Just after 1") grid1a
+>           grid1b <- stepMulti (numSteps!!0) lb ub grid1a
+>           showSlices "Final pricer" grid1b
+
+           defaultMain $     drawValues grid3b
+                         === drawValues grid3a
+                         === drawValues grid2b
+                         === drawValues grid2a
+                         === drawValues grid1b
+                         === drawValues grid1a
+
 
